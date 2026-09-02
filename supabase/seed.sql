@@ -34,3 +34,30 @@ do update set
   opening_strategy = excluded.opening_strategy,
   active = true,
   updated_at = now();
+
+insert into public.clinic_public_profiles (
+  clinic_id,
+  services,
+  hours_summary,
+  availability_summary,
+  general_note
+)
+select
+  id,
+  array[
+    'Fertility consultations',
+    'Egg-freezing consultations',
+    'IVF consultations',
+    'Women''s health consultations'
+  ],
+  'Monday to Friday, 9:00 AM to 5:00 PM; Saturday, 9:00 AM to 1:00 PM; closed Sunday.',
+  'Appointment availability changes throughout the day. Contact the clinic through secure continuation for a confirmed slot.',
+  'Nightingale can explain services and general health topics, but it cannot diagnose, recommend treatment, or confirm appointment availability.'
+from public.clinics
+where slug = 'nightingale-demo'
+on conflict (clinic_id) do update set
+  services = excluded.services,
+  hours_summary = excluded.hours_summary,
+  availability_summary = excluded.availability_summary,
+  general_note = excluded.general_note,
+  updated_at = now();

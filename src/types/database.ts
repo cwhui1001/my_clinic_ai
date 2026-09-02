@@ -22,6 +22,18 @@ export type IdentityLevel =
   | "email"
   | "authenticated";
 export type LeadStatus = "active" | "auth_started" | "converted" | "expired";
+export type MessageActor = "guest" | "assistant";
+export type MessageStatus = "received" | "completed" | "blocked" | "failed";
+export type RedactionStatus = "not_required" | "passed" | "failed";
+export type ModelRunStatus = "completed" | "failed" | "skipped";
+export type ValueEventType =
+  | "service_answer"
+  | "hours_answer"
+  | "availability_answer"
+  | "general_education"
+  | "concern_summary"
+  | "question_preparation"
+  | "trust_explanation";
 export type FunnelEventName =
   | "visitor"
   | "conversation_started"
@@ -56,6 +68,28 @@ export type Database = {
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["clinics"]["Insert"]>;
+        Relationships: [];
+      };
+      clinic_public_profiles: {
+        Row: {
+          clinic_id: string;
+          services: string[];
+          hours_summary: string;
+          availability_summary: string;
+          general_note: string;
+          updated_at: string;
+        };
+        Insert: {
+          clinic_id: string;
+          services?: string[];
+          hours_summary: string;
+          availability_summary: string;
+          general_note: string;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["clinic_public_profiles"]["Insert"]
+        >;
         Relationships: [];
       };
       lead_sessions: {
@@ -164,6 +198,98 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["funnel_events"]["Insert"]>;
         Relationships: [];
       };
+      messages: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          lead_session_id: string;
+          actor: MessageActor;
+          status: MessageStatus;
+          content_ciphertext: string;
+          content_sha256: string;
+          client_message_id: string | null;
+          in_reply_to_message_id: string | null;
+          sequence_number: number;
+          redaction_status: RedactionStatus;
+          redaction_version: string | null;
+          redaction_summary: Json;
+          requires_secure_continue: boolean;
+          audio_recording_id: string | null;
+          audio_transcript_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          lead_session_id: string;
+          actor: MessageActor;
+          status: MessageStatus;
+          content_ciphertext: string;
+          content_sha256: string;
+          client_message_id?: string | null;
+          in_reply_to_message_id?: string | null;
+          sequence_number: number;
+          redaction_status?: RedactionStatus;
+          redaction_version?: string | null;
+          redaction_summary?: Json;
+          requires_secure_continue?: boolean;
+          audio_recording_id?: string | null;
+          audio_transcript_id?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["messages"]["Insert"]>;
+        Relationships: [];
+      };
+      model_runs: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          source_message_id: string;
+          provider: string;
+          model: string;
+          prompt_version: string;
+          redacted_input_hash: string;
+          provider_response_id: string | null;
+          store_requested: boolean;
+          status: ModelRunStatus;
+          duration_ms: number;
+          error_code: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          source_message_id: string;
+          provider: string;
+          model: string;
+          prompt_version: string;
+          redacted_input_hash: string;
+          provider_response_id?: string | null;
+          store_requested?: boolean;
+          status: ModelRunStatus;
+          duration_ms: number;
+          error_code?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["model_runs"]["Insert"]>;
+        Relationships: [];
+      };
+      value_events: {
+        Row: {
+          funnel_event_id: string;
+          value_type: ValueEventType;
+          source_query_id: string | null;
+          validated_at: string | null;
+        };
+        Insert: {
+          funnel_event_id: string;
+          value_type: ValueEventType;
+          source_query_id?: string | null;
+          validated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["value_events"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -185,6 +311,38 @@ export type Database = {
         };
         Returns: Database["public"]["Tables"]["lead_sessions"]["Row"][];
       };
+      append_guest_message: {
+        Args: {
+          p_recovery_token_hash: string;
+          p_client_message_id: string;
+          p_content_ciphertext: string;
+          p_content_sha256: string;
+        };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
+      };
+      complete_guest_turn: {
+        Args: {
+          p_recovery_token_hash: string;
+          p_source_message_id: string;
+          p_source_status: MessageStatus;
+          p_redaction_status: RedactionStatus;
+          p_redaction_version: string | null;
+          p_redaction_summary: Json;
+          p_assistant_ciphertext: string;
+          p_assistant_sha256: string;
+          p_requires_secure_continue: boolean;
+          p_value_type: ValueEventType | null;
+          p_provider: string;
+          p_model: string;
+          p_prompt_version: string;
+          p_redacted_input_hash: string;
+          p_provider_response_id: string | null;
+          p_model_status: ModelRunStatus;
+          p_duration_ms: number;
+          p_error_code: string | null;
+        };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
+      };
       expire_lead_sessions: {
         Args: Record<PropertyKey, never>;
         Returns: number;
@@ -196,6 +354,11 @@ export type Database = {
       identity_level: IdentityLevel;
       lead_status: LeadStatus;
       funnel_event_name: FunnelEventName;
+      message_actor: MessageActor;
+      message_status: MessageStatus;
+      redaction_status: RedactionStatus;
+      model_run_status: ModelRunStatus;
+      value_event_type: ValueEventType;
     };
     CompositeTypes: Record<string, never>;
   };
