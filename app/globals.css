@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f3f7f6;
+  --foreground: #14201f;
 }
 
 @theme inline {
@@ -12,15 +12,49 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer components {
+  .page-shell {
+    @apply flex min-h-screen items-center justify-center px-4 py-10 sm:px-8;
+    background:
+      radial-gradient(circle at 10% 10%, rgb(204 251 241 / 55%), transparent 34rem),
+      radial-gradient(circle at 90% 90%, rgb(219 234 254 / 60%), transparent 32rem),
+      var(--background);
+  }
+
+  .surface {
+    @apply w-full rounded-3xl border border-white/80 bg-white/90 p-6 shadow-[0_24px_80px_-36px_rgba(15,118,110,0.32)] backdrop-blur sm:p-10;
+  }
+
+  .eyebrow {
+    @apply text-xs font-bold uppercase tracking-[0.2em] text-teal-700;
+  }
+
+  .field-label {
+    @apply mb-2 block text-sm font-semibold text-slate-700;
+  }
+
+  .field-control {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-100;
+  }
+
+  .primary-button {
+    @apply w-full items-center justify-center rounded-xl bg-teal-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800 focus:outline-none focus:ring-4 focus:ring-teal-200 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto;
+  }
 }
