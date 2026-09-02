@@ -29,4 +29,5 @@ export type LeadSessionDto = {
   attribution: Attribution;
   expiresAt: string;
   openingStrategy: OpeningStrategy | null;
+  preloadedContext: string | null;
 };

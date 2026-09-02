@@ -6,6 +6,7 @@ import { normalizeAttribution } from "@/src/features/attribution/normalize";
 import type { AcquisitionRequest } from "@/src/features/attribution/schema";
 import { getServerEnv } from "@/src/config/server-env";
 import { encryptLeadContext } from "@/src/server/crypto/lead-context";
+import { decryptProtectedContent } from "@/src/server/crypto/protected-content";
 import {
   createGuestToken,
   hashGuestToken,
@@ -102,6 +103,7 @@ async function toDto(
     identity_level: LeadSessionDto["attribution"]["identityLevel"];
     landing_timestamp: string;
     landing_context: Json;
+    context_ciphertext: string | null;
     expires_at: string;
   },
 ): Promise<LeadSessionDto> {
@@ -134,6 +136,9 @@ async function toDto(
     },
     expiresAt: row.expires_at,
     openingStrategy,
+    preloadedContext: row.context_ciphertext
+      ? decryptProtectedContent(row.context_ciphertext)
+      : null,
   };
 }
 
@@ -190,7 +195,7 @@ export async function getLeadSessionByRecoveryToken(recoveryToken: string) {
   const { data, error } = await supabase
     .from("lead_sessions")
     .select(
-      "id, clinic_id, status, source_channel, social_platform, campaign_id, creative, identity_level, landing_timestamp, landing_context, expires_at",
+      "id, clinic_id, status, source_channel, social_platform, campaign_id, creative, identity_level, landing_timestamp, landing_context, context_ciphertext, expires_at",
     )
     .eq("recovery_token_hash", hashGuestToken(recoveryToken))
     .in("status", ["active", "auth_started"])
