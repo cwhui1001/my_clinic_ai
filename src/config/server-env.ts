@@ -11,6 +11,17 @@ const serverEnvSchema = z.object({
   RATE_LIMIT_HMAC_KEY: z.string().min(32),
 });
 
+const openAIEnvSchema = z.object({
+  OPENAI_API_KEY: z.string().min(1),
+  OPENAI_MODEL: z.string().min(1).default("gpt-5.4-mini"),
+  OPENAI_REQUEST_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(30000)
+    .default(15000),
+});
+
 export function getServerEnv() {
   const env = serverEnvSchema.parse({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -28,4 +39,12 @@ export function getServerEnv() {
   }
 
   return env;
+}
+
+export function getOpenAIEnv() {
+  return openAIEnvSchema.parse({
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
+    OPENAI_REQUEST_TIMEOUT_MS: process.env.OPENAI_REQUEST_TIMEOUT_MS,
+  });
 }
