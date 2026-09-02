@@ -35,14 +35,14 @@ export default async function Home({
   return (
     <main className="page-shell">
       <section className="surface max-w-3xl">
-        <p className="eyebrow">Nightingale · Phase 1</p>
+        <p className="eyebrow">Nightingale · Guest access</p>
         <h1 className="mt-4 max-w-2xl text-4xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-5xl">
           A secure first step from inquiry to care
         </h1>
         <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600">
-          Start without creating an account. This phase records where the inquiry
-          came from, creates a recoverable guest LeadSession, and keeps optional
-          context encrypted.
+          Start without creating an account. We’ll preserve where your inquiry came
+          from and open a private guest chat for services, hours, availability, and
+          general information.
         </p>
         <LeadSessionStarter
           defaults={{
@@ -55,8 +55,8 @@ export default async function Home({
           }}
         />
         <p className="mt-6 text-xs leading-5 text-slate-500">
-          Phase 1 does not provide medical advice or AI chat. If this is an emergency,
-          exit Nightingale and dial 999 for Emergency Services.
+          Nightingale AI is non-diagnostic. If this is an emergency, exit Nightingale
+          and dial 999 for Emergency Services.
         </p>
       </section>
     </main>
