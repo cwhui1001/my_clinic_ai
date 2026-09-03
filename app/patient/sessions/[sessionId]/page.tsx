@@ -43,7 +43,7 @@ export default async function PatientSessionPage({ params }: { params: Promise<{
           </div>
         ) : null}
 
-        <PatientChat sessionId={session.id} initialMessages={session.messages} />
+        <PatientChat sessionId={session.id} initialMessages={session.messages} initialMemory={session.memory} />
       </section>
     </main>
   );

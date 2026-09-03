@@ -3,15 +3,19 @@
 import { FormEvent, useRef, useState } from "react";
 
 import type { PatientMessageDto, PatientReplyDto } from "@/src/types/patient-chat";
+import type { MemoryItemDto } from "@/src/types/memory";
 
 export function PatientChat({
   sessionId,
   initialMessages,
+  initialMemory,
 }: {
   sessionId: string;
   initialMessages: PatientMessageDto[];
+  initialMemory: MemoryItemDto[];
 }) {
   const [messages, setMessages] = useState(initialMessages);
+  const [memory, setMemory] = useState(initialMemory);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +54,7 @@ export function PatientChat({
         payload.reply!.patientMessage,
         payload.reply!.assistantMessage,
       ]);
+      setMemory(payload.reply.memory);
     } catch (reason) {
       setMessages((current) => current.filter((message) => message.id !== clientMessageId));
       setDraft(content);
@@ -60,7 +65,9 @@ export function PatientChat({
   }
 
   return (
-    <section className="mt-7 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <div className="mt-7 space-y-5">
+      <PatientProfile memory={memory} />
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
       <header className="border-b border-slate-100 px-5 py-4 sm:px-6">
         <h2 className="font-semibold text-slate-950">Nightingale AI patient messenger</h2>
         <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -93,14 +100,15 @@ export function PatientChat({
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-500">Nightingale AI is non-diagnostic. Medium, High, or uncertain messages receive safety guidance instead of generated clinical advice.</p>
       </form>
-    </section>
+      </section>
+    </div>
   );
 }
 
 function PatientMessage({ message }: { message: PatientMessageDto }) {
   const fromPatient = message.actor === "patient" || message.actor === "guest";
   return (
-    <div>
+    <div id={`message-${message.id}`}>
       <div className={`flex ${fromPatient ? "justify-end" : "justify-start"}`}>
         <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${fromPatient ? "rounded-br-md bg-teal-700 text-white" : "rounded-bl-md bg-white text-slate-800"}`}>
           {message.content}
@@ -128,6 +136,66 @@ function PatientMessage({ message }: { message: PatientMessageDto }) {
       ) : null}
     </div>
   );
+}
+
+function PatientProfile({ memory }: { memory: MemoryItemDto[] }) {
+  return (
+    <section className="rounded-3xl border border-teal-100 bg-white p-5 shadow-sm sm:p-6" aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="eyebrow">Living Memory</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">Patient Profile</h2>
+        </div>
+        <p className="max-w-sm text-xs leading-5 text-slate-500">Facts are extracted from your messages. Corrections add a new revision while preserving the original source.</p>
+      </div>
+
+      {memory.length ? (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {memory.map((item) => {
+            const current = item.revisions.find((revision) => revision.id === item.currentRevisionId);
+            if (!current) return null;
+            return (
+              <article key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{memoryLabel(item.kind)}</p>
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${current.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{current.status}</span>
+                </div>
+                <p className="mt-2 break-words text-sm font-semibold text-slate-900">{displayMemoryValue(current.value)}</p>
+                <p className="mt-2 text-xs text-slate-500">Updated {formatMemoryDate(current.updatedAt)} · {current.confidence} confidence</p>
+                <details className="mt-3 text-xs text-slate-600">
+                  <summary className="cursor-pointer font-semibold text-teal-800">Provenance · {item.revisions.length} revision{item.revisions.length === 1 ? "" : "s"}</summary>
+                  <ol className="mt-2 space-y-2 border-l border-teal-200 pl-3">
+                    {item.revisions.map((revision) => (
+                      <li key={revision.id}>
+                        <span className="font-semibold">{revision.status}</span> · {formatMemoryDate(revision.updatedAt)} · <a className="underline hover:text-teal-900" href={`#message-${revision.sourceMessageId}`}>source message</a>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              </article>
+            );
+          })}
+        </div>
+      ) : <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No profile facts have been captured yet. Explicitly share a main concern, symptom timeline, medication, or allergy to update this profile.</p>}
+    </section>
+  );
+}
+
+function memoryLabel(kind: MemoryItemDto["kind"]) {
+  return kind.replaceAll("_", " ");
+}
+
+function displayMemoryValue(value: string) {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return Object.values(parsed).filter((part) => typeof part === "string" && part).join(" · ") || value;
+  } catch {
+    return value;
+  }
+}
+
+function formatMemoryDate(value: string) {
+  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 function riskStyle(level: "low" | "medium" | "high") {

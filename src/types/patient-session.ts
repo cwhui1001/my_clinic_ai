@@ -1,5 +1,6 @@
 import type { PatientSessionStatus, SourceChannel } from "@/src/types/database";
 import type { PatientMessageDto } from "@/src/types/patient-chat";
+import type { MemoryItemDto } from "@/src/types/memory";
 
 export type PatientSessionView = {
   id: string;
@@ -16,4 +17,5 @@ export type PatientSessionView = {
     landingTimestamp: string;
   };
   messages: PatientMessageDto[];
+  memory: MemoryItemDto[];
 };
