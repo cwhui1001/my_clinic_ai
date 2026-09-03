@@ -22,7 +22,7 @@ export type IdentityLevel =
   | "email"
   | "authenticated";
 export type LeadStatus = "active" | "auth_started" | "converted" | "expired";
-export type MessageActor = "guest" | "assistant";
+export type MessageActor = "guest" | "patient" | "assistant";
 export type MessageStatus = "received" | "completed" | "blocked" | "failed";
 export type RedactionStatus = "not_required" | "passed" | "failed";
 export type ModelRunStatus = "completed" | "failed" | "skipped";
@@ -38,6 +38,8 @@ export type PatientSessionStatus = "active" | "closed";
 export type ContactPointType = "email" | "phone" | "social_handle";
 export type ConsentType = "healthcare_sharing" | "marketing_email";
 export type ConsentAction = "granted" | "withdrawn";
+export type RiskLevel = "low" | "medium" | "high";
+export type ResponseConfidence = "low" | "med" | "high";
 export type FunnelEventName =
   | "visitor"
   | "conversation_started"
@@ -208,7 +210,8 @@ export type Database = {
         Row: {
           id: string;
           clinic_id: string;
-          lead_session_id: string;
+          lead_session_id: string | null;
+          patient_session_id: string | null;
           actor: MessageActor;
           status: MessageStatus;
           content_ciphertext: string;
@@ -227,7 +230,8 @@ export type Database = {
         Insert: {
           id?: string;
           clinic_id: string;
-          lead_session_id: string;
+          lead_session_id?: string | null;
+          patient_session_id?: string | null;
           actor: MessageActor;
           status: MessageStatus;
           content_ciphertext: string;
@@ -400,6 +404,90 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["consent_events"]["Insert"]>;
         Relationships: [];
       };
+      knowledge_sources: {
+        Row: {
+          id: string;
+          title: string;
+          publisher: string;
+          url: string;
+          content: string;
+          version: string;
+          reviewed_at: string;
+          active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          title: string;
+          publisher: string;
+          url: string;
+          content: string;
+          version: string;
+          reviewed_at: string;
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["knowledge_sources"]["Insert"]>;
+        Relationships: [];
+      };
+      risk_assessments: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          patient_session_id: string;
+          message_id: string;
+          risk_level: RiskLevel;
+          risk_reason: string;
+          confidence: ResponseConfidence;
+          escalation_required: boolean;
+          rule_matches: string[];
+          model_run_id: string | null;
+          pipeline_version: string;
+          provenance: Json;
+          assessed_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          patient_session_id: string;
+          message_id: string;
+          risk_level: RiskLevel;
+          risk_reason: string;
+          confidence: ResponseConfidence;
+          escalation_required: boolean;
+          rule_matches?: string[];
+          model_run_id?: string | null;
+          pipeline_version: string;
+          provenance?: Json;
+          assessed_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["risk_assessments"]["Insert"]>;
+        Relationships: [];
+      };
+      citations: {
+        Row: {
+          id: string;
+          assistant_message_id: string;
+          knowledge_source_id: string;
+          source_start: number;
+          source_end: number;
+          quoted_span_hash: string;
+          ordinal: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          assistant_message_id: string;
+          knowledge_source_id: string;
+          source_start: number;
+          source_end: number;
+          quoted_span_hash: string;
+          ordinal: number;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["citations"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -468,6 +556,44 @@ export type Database = {
         };
         Returns: string;
       };
+      append_patient_message: {
+        Args: {
+          p_patient_session_id: string;
+          p_client_message_id: string;
+          p_content_ciphertext: string;
+          p_content_sha256: string;
+        };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
+      };
+      complete_patient_turn: {
+        Args: {
+          p_patient_session_id: string;
+          p_source_message_id: string;
+          p_source_status: MessageStatus;
+          p_redaction_status: RedactionStatus;
+          p_redaction_version: string | null;
+          p_redaction_summary: Json;
+          p_assistant_ciphertext: string;
+          p_assistant_sha256: string;
+          p_risk_level: RiskLevel;
+          p_risk_reason: string;
+          p_confidence: ResponseConfidence;
+          p_escalation_required: boolean;
+          p_rule_matches: string[];
+          p_pipeline_version: string;
+          p_risk_provenance: Json;
+          p_provider: string;
+          p_model: string;
+          p_prompt_version: string;
+          p_redacted_input_hash: string;
+          p_provider_response_id: string | null;
+          p_model_status: ModelRunStatus;
+          p_duration_ms: number;
+          p_error_code: string | null;
+          p_citations: Json;
+        };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
+      };
       expire_lead_sessions: {
         Args: Record<PropertyKey, never>;
         Returns: number;
@@ -488,6 +614,8 @@ export type Database = {
       contact_point_type: ContactPointType;
       consent_type: ConsentType;
       consent_action: ConsentAction;
+      risk_level: RiskLevel;
+      response_confidence: ResponseConfidence;
     };
     CompositeTypes: Record<string, never>;
   };
