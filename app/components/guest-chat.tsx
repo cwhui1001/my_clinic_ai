@@ -39,6 +39,7 @@ export function GuestChat() {
       .then((value) => {
         if (!active) return;
         setThread(value);
+        setShowContinuation(Boolean(value?.secureContinuationAvailable));
         setStatus(value ? "ready" : "missing");
       })
       .catch(() => {
@@ -101,7 +102,7 @@ export function GuestChat() {
             }
           : current,
       );
-      if (reply.assistantMessage.requiresSecureContinue) {
+      if (reply.valueType || reply.assistantMessage.requiresSecureContinue) {
         setShowContinuation(true);
       }
     } catch (reason) {
@@ -231,16 +232,13 @@ export function GuestChat() {
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
             <p className="font-semibold">Ready for secure human follow-up?</p>
             <p className="mt-1 leading-6">
-              The next phase will verify your identity and ask for consent before sharing
-              any protected guest context with {session.clinic.name}.
+              Verify your identity, then choose whether to share this protected guest
+              context with {session.clinic.name}.
             </p>
-            <button
-              className="mt-3 rounded-lg bg-amber-900 px-3 py-2 text-xs font-bold text-white"
-              type="button"
-              onClick={() => setShowContinuation(false)}
-            >
-              Not now
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link className="rounded-lg bg-amber-900 px-3 py-2 text-xs font-bold text-white" href="/signup">Continue securely</Link>
+              <button className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-950" type="button" onClick={() => setShowContinuation(false)}>Not now</button>
+            </div>
           </div>
         ) : null}
         <div ref={endRef} />

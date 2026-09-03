@@ -18,6 +18,7 @@ export type GuestMessageDto = {
 export type GuestThreadDto = {
   session: LeadSessionDto;
   messages: GuestMessageDto[];
+  secureContinuationAvailable: boolean;
 };
 
 export type GuestReplyDto = {

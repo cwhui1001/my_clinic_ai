@@ -144,15 +144,31 @@ function localAnswer(
 export async function getGuestThread(recoveryToken: string): Promise<GuestThreadDto> {
   const session = await resolveGuestSession(recoveryToken);
   const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("lead_session_id", session.id)
-    .in("status", ["completed", "blocked"])
-    .order("sequence_number", { ascending: true });
+  const [{ data, error }, { data: valueEvents, error: valueEventError }] =
+    await Promise.all([
+      supabase
+        .from("messages")
+        .select("*")
+        .eq("lead_session_id", session.id)
+        .in("status", ["completed", "blocked"])
+        .order("sequence_number", { ascending: true }),
+      supabase
+        .from("funnel_events")
+        .select("id")
+        .eq("lead_session_id", session.id)
+        .eq("name", "value_event")
+        .limit(1),
+    ]);
 
-  if (error) throw new GuestChatError("database_error");
-  return { session, messages: (data ?? []).map(toMessageDto) };
+  if (error || valueEventError) throw new GuestChatError("database_error");
+  const messages = (data ?? []).map(toMessageDto);
+  return {
+    session,
+    messages,
+    secureContinuationAvailable:
+      Boolean(valueEvents?.length) ||
+      messages.some((message) => message.requiresSecureContinue),
+  };
 }
 
 export async function createGuestTurn(
