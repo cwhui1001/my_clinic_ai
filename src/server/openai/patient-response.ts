@@ -23,6 +23,14 @@ const patientModelSchema = z
     asksForClarity: z.boolean(),
     soundsUnsure: z.boolean(),
     citationSourceIds: z.array(z.string().uuid()).max(2),
+    memoryProposals: z.array(z.object({
+      kind: z.enum(["chief_complaint", "symptom", "medication", "allergy"]),
+      canonicalKey: z.string().trim().min(1).max(80),
+      value: z.string().trim().min(1).max(500),
+      status: z.enum(["active", "stopped", "resolved", "corrected"]),
+      confidence: z.enum(["low", "med", "high"]),
+      effectiveAt: z.string().datetime().nullable(),
+    }).strict()).max(8),
   })
   .strict();
 
@@ -69,6 +77,8 @@ export async function createPatientModelResponse(input: {
           "If the patient requests a diagnosis, requests more clinical clarity, sounds unsure, or the evidence is insufficient, set the corresponding flag and do not classify Low.",
           "For a Low result, cite at least one supplied source ID. Never invent a source ID or medical fact.",
           "Do not reproduce, infer, or guess identifiers represented by [REDACTED].",
+          "Extract only facts explicitly stated in this message into memoryProposals: chief complaint, key symptoms with stated timeline, current medications, and allergies.",
+          "Use a short lowercase snake_case canonicalKey. Never infer a diagnosis, medication, allergy, date, or correction. Use low confidence when uncertain; the server will omit it.",
         ].join("\n"),
         input: [
           {
@@ -110,6 +120,23 @@ export async function createPatientModelResponse(input: {
                   maxItems: 2,
                   items: { type: "string" },
                 },
+                memoryProposals: {
+                  type: "array",
+                  maxItems: 8,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      kind: { type: "string", enum: ["chief_complaint", "symptom", "medication", "allergy"] },
+                      canonicalKey: { type: "string", minLength: 1, maxLength: 80 },
+                      value: { type: "string", minLength: 1, maxLength: 500 },
+                      status: { type: "string", enum: ["active", "stopped", "resolved", "corrected"] },
+                      confidence: { type: "string", enum: ["low", "med", "high"] },
+                      effectiveAt: { type: ["string", "null"] },
+                    },
+                    required: ["kind", "canonicalKey", "value", "status", "confidence", "effectiveAt"],
+                  },
+                },
               },
               required: [
                 "riskLevel",
@@ -120,6 +147,7 @@ export async function createPatientModelResponse(input: {
                 "asksForClarity",
                 "soundsUnsure",
                 "citationSourceIds",
+                "memoryProposals",
               ],
             },
           },

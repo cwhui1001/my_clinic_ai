@@ -10,6 +10,8 @@ import {
   type RiskDecision,
 } from "../risk/policy";
 import { assertPhiSafe, redactPhi, REDACTION_VERSION, type RedactionResult } from "../redaction/redact";
+import { extractDeterministicMemory, normalizeModelMemoryProposal } from "../memory/extract";
+import type { MemoryCurrentFact, MemoryProposal } from "@/src/types/memory";
 
 export type PipelineKnowledgeSource = {
   id: string;
@@ -35,6 +37,7 @@ export type PatientPipelineResult = {
   sourceStatus: "completed" | "blocked";
   model: ModelGeneration | null;
   errorCode: string | null;
+  memoryProposals: MemoryProposal[];
 };
 
 export async function runPatientSafetyPipeline(input: {
@@ -42,6 +45,8 @@ export async function runPatientSafetyPipeline(input: {
   sources: PipelineKnowledgeSource[];
   generate: (request: { redactedMessage: string; sources: PipelineKnowledgeSource[] }) => Promise<ModelGeneration>;
   redact?: typeof redactPhi;
+  sourceMessageId?: string;
+  currentMemory?: MemoryCurrentFact[];
 }): Promise<PatientPipelineResult> {
   const deterministic = assessDeterministicRisk(input.message);
   let redaction: RedactionResult;
@@ -69,6 +74,7 @@ export async function runPatientSafetyPipeline(input: {
         sourceStatus: "blocked",
         model: null,
         errorCode: "redaction_failed",
+        memoryProposals: [],
       };
     }
     return {
@@ -79,8 +85,17 @@ export async function runPatientSafetyPipeline(input: {
       sourceStatus: "blocked",
       model: null,
       errorCode: "redaction_failed",
+      memoryProposals: [],
     };
   }
+
+  const deterministicMemory = input.sourceMessageId
+    ? extractDeterministicMemory({
+        message: redaction.text,
+        sourceMessageId: input.sourceMessageId,
+        currentFacts: input.currentMemory ?? [],
+      })
+    : [];
 
   if (deterministic) {
     return {
@@ -98,6 +113,7 @@ export async function runPatientSafetyPipeline(input: {
       sourceStatus: "completed",
       model: null,
       errorCode: null,
+      memoryProposals: deterministicMemory,
     };
   }
 
@@ -112,6 +128,17 @@ export async function runPatientSafetyPipeline(input: {
       answer: safeAnswer,
       riskReason: safeRiskReason,
     };
+    const modelMemory = (safeProposal.memoryProposals ?? []).flatMap((proposal): MemoryProposal[] => {
+      if (!input.sourceMessageId) return [];
+      const safeValue = redactPhi(proposal.value).text;
+      assertPhiSafe(safeValue);
+      const normalized = normalizeModelMemoryProposal({
+        ...proposal,
+        value: safeValue,
+        sourceMessageId: input.sourceMessageId,
+      });
+      return normalized ? [normalized] : [];
+    });
     const sourceIds = new Set(input.sources.map((source) => source.id));
     const uniqueCitationIds = [...new Set(safeProposal.citationSourceIds)];
     const citationsValid =
@@ -129,6 +156,7 @@ export async function runPatientSafetyPipeline(input: {
       sourceStatus: "completed",
       model,
       errorCode: risk.level === "low" ? null : risk.ruleMatches[0] ?? null,
+      memoryProposals: mergeMemoryProposals(deterministicMemory, modelMemory),
     };
   } catch (error) {
     const code = getSafeModelErrorCode(error);
@@ -140,8 +168,16 @@ export async function runPatientSafetyPipeline(input: {
       sourceStatus: "completed",
       model: null,
       errorCode: code,
+      memoryProposals: deterministicMemory,
     };
   }
+}
+
+function mergeMemoryProposals(deterministic: MemoryProposal[], model: MemoryProposal[]) {
+  const merged = new Map<string, MemoryProposal>();
+  for (const proposal of model) merged.set(`${proposal.kind}:${proposal.canonicalKey}`, proposal);
+  for (const proposal of deterministic) merged.set(`${proposal.kind}:${proposal.canonicalKey}`, proposal);
+  return [...merged.values()].slice(0, 12);
 }
 
 function getSafeModelErrorCode(error: unknown) {

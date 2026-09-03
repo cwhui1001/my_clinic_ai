@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { PatientMessageRequest } from "@/src/features/patient-chat/schema";
+import { currentFactsFromProfile, loadMemoryProfileForSession, toEncryptedMemoryPayload } from "@/src/features/memory/service";
 import { runPatientSafetyPipeline, type PipelineKnowledgeSource } from "@/src/features/patient-chat/pipeline";
 import { PATIENT_PROMPT_VERSION, RISK_PIPELINE_VERSION } from "@/src/features/risk/policy";
 import { REDACTION_VERSION } from "@/src/features/redaction/redact";
@@ -56,10 +57,18 @@ export async function createPatientTurn(
     .limit(4);
   if (sourceError) throw new PatientChatError("database_error");
   const sources = (sourceRows ?? []) satisfies PipelineKnowledgeSource[];
+  let currentMemory;
+  try {
+    currentMemory = currentFactsFromProfile(await loadMemoryProfileForSession(patientSessionId));
+  } catch {
+    throw new PatientChatError("database_error");
+  }
 
   const pipeline = await runPatientSafetyPipeline({
     message: input.message,
     sources,
+    sourceMessageId: appended.id,
+    currentMemory,
     generate: ({ redactedMessage, sources: approvedSources }) =>
       createPatientModelResponse({
         redactedMessage,
@@ -89,7 +98,7 @@ export async function createPatientTurn(
   const assessedAt = new Date().toISOString();
 
   const { data: completed, error: completeError } = await admin
-    .rpc("complete_patient_turn", {
+    .rpc("complete_patient_turn_with_memory", {
       p_patient_session_id: patientSessionId,
       p_source_message_id: appended.id,
       p_source_status: pipeline.sourceStatus,
@@ -122,6 +131,7 @@ export async function createPatientTurn(
       p_duration_ms: pipeline.model?.durationMs ?? 0,
       p_error_code: pipeline.errorCode,
       p_citations: citationEvidence as Json,
+      p_memory_proposals: toEncryptedMemoryPayload(pipeline.memoryProposals),
     })
     .single();
 
@@ -171,6 +181,7 @@ async function loadReply(patientMessage: MessageRow, assistantMessage: MessageRo
   return {
     patientMessage: toMessageDto(patientMessage, toRiskDto(risk), []),
     assistantMessage: toMessageDto(assistantMessage, null, citationDtos),
+    memory: await loadMemoryProfileForSession(patientMessage.patient_session_id!),
   };
 }
 
@@ -212,7 +223,13 @@ function mapDatabaseError(code?: string) {
   if (code === "P0021") return new PatientChatError("consent_required");
   if (code === "P0001") return new PatientChatError("rate_limited");
   if (code === "P0004") return new PatientChatError("turn_in_progress");
-  if (code === "P0005" || code === "P0022" || code === "P0023" || code === "P0024") {
+  if (
+    code === "P0005" ||
+    code === "P0022" ||
+    code === "P0023" ||
+    code === "P0024" ||
+    ["P0031", "P0032", "P0033", "P0034"].includes(code ?? "")
+  ) {
     return new PatientChatError("invalid_state");
   }
   return new PatientChatError("database_error");

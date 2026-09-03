@@ -6,6 +6,7 @@ import {
   PENDING_PHONE_COOKIE,
 } from "@/src/features/consent/constants";
 import { conversionRequestSchema, normalizePhone } from "@/src/features/consent/schema";
+import { bootstrapGuestMemory } from "@/src/features/memory/service";
 import { AuthenticationError, getVerifiedUser } from "@/src/server/auth/user";
 import { GUEST_SESSION_COOKIE, hashGuestToken } from "@/src/server/crypto/guest-token";
 import { encryptProtectedContent, hashProtectedContent } from "@/src/server/crypto/protected-content";
@@ -54,6 +55,8 @@ export async function POST(request: NextRequest) {
       writeAuditLog({ action: "lead.convert", outcome: "failure", resourceId: user.id, errorCode: mapped.code });
       return jsonError(mapped.code, mapped.status);
     }
+
+    await bootstrapGuestMemory(patientSessionId);
 
     writeAuditLog({ action: "lead.convert", outcome: "success", resourceId: patientSessionId });
     const response = NextResponse.json(

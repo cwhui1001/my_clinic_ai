@@ -1,7 +1,7 @@
-import type { ResponseConfidence, RiskLevel } from "@/src/types/database";
+import type { MemoryKind, MemoryStatus, ResponseConfidence, RiskLevel } from "@/src/types/database";
 
 export const RISK_PIPELINE_VERSION = "patient-risk-v1";
-export const PATIENT_PROMPT_VERSION = "patient-safe-response-v1";
+export const PATIENT_PROMPT_VERSION = "patient-safe-response-memory-v2";
 
 type RiskRule = {
   id: string;
@@ -40,6 +40,14 @@ export type ModelRiskProposal = {
   asksForClarity: boolean;
   soundsUnsure: boolean;
   citationSourceIds: string[];
+  memoryProposals?: Array<{
+    kind: MemoryKind;
+    canonicalKey: string;
+    value: string;
+    status: MemoryStatus;
+    confidence: ResponseConfidence;
+    effectiveAt: string | null;
+  }>;
 };
 
 export type RiskDecision = {
