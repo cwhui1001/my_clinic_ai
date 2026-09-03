@@ -1,4 +1,5 @@
 import { LeadSessionStarter } from "@/app/components/lead-session-starter";
+import Link from "next/link";
 import type { SourceChannel } from "@/src/types/database";
 
 const ENTRY_SOURCE_CHANNELS = new Set<SourceChannel>([
@@ -58,6 +59,7 @@ export default async function Home({
           Nightingale AI is non-diagnostic. If this is an emergency, exit Nightingale
           and dial 999 for Emergency Services.
         </p>
+        <p className="mt-3 text-xs text-slate-500"><Link className="font-semibold text-teal-800 underline" href="/staff/login">Clinic team sign-in</Link></p>
       </section>
     </main>
   );
