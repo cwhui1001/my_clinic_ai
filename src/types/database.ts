@@ -34,6 +34,10 @@ export type ValueEventType =
   | "concern_summary"
   | "question_preparation"
   | "trust_explanation";
+export type PatientSessionStatus = "active" | "closed";
+export type ContactPointType = "email" | "phone" | "social_handle";
+export type ConsentType = "healthcare_sharing" | "marketing_email";
+export type ConsentAction = "granted" | "withdrawn";
 export type FunnelEventName =
   | "visitor"
   | "conversation_started"
@@ -112,6 +116,7 @@ export type Database = {
           converted_patient_id: string | null;
           converted_patient_session_id: string | null;
           converted_at: string | null;
+          conversion_idempotency_hash: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -134,6 +139,7 @@ export type Database = {
           converted_patient_id?: string | null;
           converted_patient_session_id?: string | null;
           converted_at?: string | null;
+          conversion_idempotency_hash?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -290,6 +296,110 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["value_events"]["Insert"]>;
         Relationships: [];
       };
+      patients: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          auth_user_id: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          auth_user_id: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["patients"]["Insert"]>;
+        Relationships: [];
+      };
+      contact_points: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          patient_id: string;
+          type: ContactPointType;
+          value_ciphertext: string | null;
+          value_hash: string;
+          external_ref: string | null;
+          verified_at: string | null;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          patient_id: string;
+          type: ContactPointType;
+          value_ciphertext?: string | null;
+          value_hash: string;
+          external_ref?: string | null;
+          verified_at?: string | null;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["contact_points"]["Insert"]>;
+        Relationships: [];
+      };
+      patient_sessions: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          patient_id: string;
+          origin_lead_session_id: string;
+          status: PatientSessionStatus;
+          started_at: string;
+          closed_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          patient_id: string;
+          origin_lead_session_id: string;
+          status?: PatientSessionStatus;
+          started_at?: string;
+          closed_at?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["patient_sessions"]["Insert"]>;
+        Relationships: [];
+      };
+      consent_events: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          patient_id: string;
+          lead_session_id: string | null;
+          type: ConsentType;
+          action: ConsentAction;
+          policy_version: string;
+          notice_version: string;
+          captured_via: string;
+          evidence_metadata: Json;
+          idempotency_key: string;
+          occurred_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          patient_id: string;
+          lead_session_id?: string | null;
+          type: ConsentType;
+          action: ConsentAction;
+          policy_version: string;
+          notice_version: string;
+          captured_via: string;
+          evidence_metadata?: Json;
+          idempotency_key: string;
+          occurred_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["consent_events"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -343,6 +453,21 @@ export type Database = {
         };
         Returns: Database["public"]["Tables"]["messages"]["Row"][];
       };
+      mark_lead_auth_started: {
+        Args: { p_recovery_token_hash: string };
+        Returns: string;
+      };
+      convert_lead_to_patient: {
+        Args: {
+          p_recovery_token_hash: string;
+          p_phone_ciphertext: string;
+          p_phone_hash: string;
+          p_consent_granted: boolean;
+          p_policy_version: string;
+          p_notice_version: string;
+        };
+        Returns: string;
+      };
       expire_lead_sessions: {
         Args: Record<PropertyKey, never>;
         Returns: number;
@@ -359,6 +484,10 @@ export type Database = {
       redaction_status: RedactionStatus;
       model_run_status: ModelRunStatus;
       value_event_type: ValueEventType;
+      patient_session_status: PatientSessionStatus;
+      contact_point_type: ContactPointType;
+      consent_type: ConsentType;
+      consent_action: ConsentAction;
     };
     CompositeTypes: Record<string, never>;
   };
