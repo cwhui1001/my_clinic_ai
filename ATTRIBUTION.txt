@@ -1,0 +1,96 @@
+NIGHTINGALE MVP - THIRD-PARTY ATTRIBUTION
+Last reviewed: 2026-09-03
+
+This file covers external packages, platforms, models, and reference material used
+directly by the repository. Exact resolved versions, including transitive and
+platform-specific optional packages, are recorded in package-lock.json. Package
+license texts and notices are distributed under node_modules after npm install.
+
+RUNTIME LIBRARIES
+
+@supabase/ssr 0.9.0
+  License: MIT
+  Project: https://github.com/supabase/ssr
+
+@supabase/supabase-js 2.100.0
+  License: MIT
+  Project: https://github.com/supabase/supabase-js
+
+next 16.3.4
+  License: MIT
+  Project: https://github.com/vercel/next.js
+
+react 19.2.8
+  License: MIT
+  Project: https://github.com/facebook/react
+
+react-dom 19.2.8
+  License: MIT
+  Project: https://github.com/facebook/react
+
+zod 4.5.4
+  License: MIT
+  Project: https://github.com/colinhacks/zod
+
+DEVELOPMENT LIBRARIES
+
+@tailwindcss/postcss 4.x and tailwindcss 4.x
+  Resolved versions: package-lock.json
+  License: MIT
+  Project: https://github.com/tailwindlabs/tailwindcss
+
+@types/node 20.x, @types/react 19.x, @types/react-dom 19.x
+  Resolved versions: package-lock.json
+  License: MIT
+  Project: https://github.com/DefinitelyTyped/DefinitelyTyped
+
+eslint 9.x and eslint-config-next 16.3.4
+  Resolved versions: package-lock.json
+  License: MIT
+  Projects: https://github.com/eslint/eslint and https://github.com/vercel/next.js
+
+typescript 5.x
+  Resolved version: package-lock.json
+  License: Apache-2.0
+  Project: https://github.com/microsoft/TypeScript
+
+vitest 4.x
+  Resolved version: package-lock.json
+  License: MIT
+  Project: https://github.com/vitest-dev/vitest
+
+HOSTED SERVICES AND MODELS
+
+Supabase hosted PostgreSQL and Auth
+  Client libraries: MIT. Hosted service use is governed by Supabase terms.
+  https://supabase.com/terms
+
+PostgreSQL
+  License: PostgreSQL License
+  https://www.postgresql.org/about/licence/
+
+OpenAI API / model selected by OPENAI_MODEL
+  Default template value: gpt-5.4-mini
+  License: proprietary hosted model; governed by OpenAI Service Terms and Usage
+  Policies rather than an open-source model license.
+  https://openai.com/policies/service-terms/
+  https://openai.com/policies/usage-policies/
+
+PLATFORM AND LEGAL REFERENCES
+
+TECHNICAL_BRIEF.md links to official materials from Malaysia's Personal Data
+Protection Commissioner, Malaysia's Pharmaceutical Services Programme / Medicine
+Advertisements Board, Google Ads, and Meta. These were used for analysis and were
+not copied into the application.
+
+ASSETS AND DATA
+
+No third-party image, audio, font, icon pack, patient dataset, or scraped content is
+included. UI copy, CSS, diagrams, fixtures, and synthetic test data were created for
+this prototype. No real patient data should be entered.
+
+NOTICE
+
+This summary is not a substitute for package license files. Before redistribution,
+deployment, or commercial use, scan the exact package-lock.json and retain all
+required transitive notices.
