@@ -42,6 +42,8 @@ export type RiskLevel = "low" | "medium" | "high";
 export type ResponseConfidence = "low" | "med" | "high";
 export type MemoryKind = "chief_complaint" | "symptom" | "medication" | "allergy";
 export type MemoryStatus = "active" | "stopped" | "resolved" | "corrected";
+export type MemberRole = "staff" | "nurse" | "clinician";
+export type EscalationStatus = "required" | "queued" | "acknowledged" | "responded" | "closed";
 export type FunnelEventName =
   | "visitor"
   | "conversation_started"
@@ -544,6 +546,118 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["memory_revisions"]["Insert"]>;
         Relationships: [];
       };
+      clinic_memberships: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          auth_user_id: string;
+          role: MemberRole;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          auth_user_id: string;
+          role: MemberRole;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["clinic_memberships"]["Insert"]>;
+        Relationships: [];
+      };
+      escalations: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          patient_id: string;
+          patient_session_id: string;
+          trigger_message_id: string;
+          risk_assessment_id: string;
+          status: EscalationStatus;
+          triage_summary_ciphertext: string | null;
+          triage_summary_sha256: string | null;
+          profile_snapshot_ciphertext: string | null;
+          profile_snapshot_sha256: string | null;
+          attribution_snapshot: Json | null;
+          response_min_hours: number | null;
+          response_max_hours: number | null;
+          response_expected_by: string | null;
+          acknowledged_by_membership_id: string | null;
+          acknowledged_at: string | null;
+          created_at: string;
+          sent_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          patient_id: string;
+          patient_session_id: string;
+          trigger_message_id: string;
+          risk_assessment_id: string;
+          status?: EscalationStatus;
+          triage_summary_ciphertext?: string | null;
+          triage_summary_sha256?: string | null;
+          profile_snapshot_ciphertext?: string | null;
+          profile_snapshot_sha256?: string | null;
+          attribution_snapshot?: Json | null;
+          response_min_hours?: number | null;
+          response_max_hours?: number | null;
+          response_expected_by?: string | null;
+          acknowledged_by_membership_id?: string | null;
+          acknowledged_at?: string | null;
+          created_at?: string;
+          sent_at?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["escalations"]["Insert"]>;
+        Relationships: [];
+      };
+      escalation_provenance: {
+        Row: {
+          id: string;
+          escalation_id: string;
+          message_id: string | null;
+          memory_revision_id: string | null;
+          purpose: "trigger" | "summary_support" | "profile_support";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          escalation_id: string;
+          message_id?: string | null;
+          memory_revision_id?: string | null;
+          purpose: "trigger" | "summary_support" | "profile_support";
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["escalation_provenance"]["Insert"]>;
+        Relationships: [];
+      };
+      clinician_responses: {
+        Row: {
+          id: string;
+          escalation_id: string;
+          clinic_id: string;
+          author_membership_id: string;
+          content_ciphertext: string;
+          content_sha256: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          escalation_id: string;
+          clinic_id: string;
+          author_membership_id: string;
+          content_ciphertext: string;
+          content_sha256: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["clinician_responses"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -660,6 +774,33 @@ export type Database = {
         Args: { p_patient_session_id: string; p_memory_proposals: Json };
         Returns: undefined;
       };
+      queue_escalation: {
+        Args: {
+          p_escalation_id: string;
+          p_triage_summary_ciphertext: string;
+          p_triage_summary_sha256: string;
+          p_profile_snapshot_ciphertext: string;
+          p_profile_snapshot_sha256: string;
+          p_provenance: Json;
+        };
+        Returns: Database["public"]["Tables"]["escalations"]["Row"][];
+      };
+      acknowledge_escalation: {
+        Args: { p_escalation_id: string };
+        Returns: Database["public"]["Tables"]["escalations"]["Row"][];
+      };
+      respond_to_escalation: {
+        Args: {
+          p_escalation_id: string;
+          p_content_ciphertext: string;
+          p_content_sha256: string;
+        };
+        Returns: Database["public"]["Tables"]["clinician_responses"]["Row"][];
+      };
+      close_escalation: {
+        Args: { p_escalation_id: string };
+        Returns: Database["public"]["Tables"]["escalations"]["Row"][];
+      };
       expire_lead_sessions: {
         Args: Record<PropertyKey, never>;
         Returns: number;
@@ -684,6 +825,8 @@ export type Database = {
       response_confidence: ResponseConfidence;
       memory_kind: MemoryKind;
       memory_status: MemoryStatus;
+      member_role: MemberRole;
+      escalation_status: EscalationStatus;
     };
     CompositeTypes: Record<string, never>;
   };
