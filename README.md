@@ -1,8 +1,8 @@
 # Nightingale MVP
 
-Nightingale is a secure first-touch-to-care PWA prototype. Phases 1 through 3 implement acquisition attribution, recoverable guest sessions, encrypted guest messaging, non-diagnostic guest value, PHI redaction, Supabase authentication, explicit consent, and atomic guest-to-patient conversion.
+Nightingale is a secure first-touch-to-care PWA prototype. Phases 1 through 4 implement acquisition attribution, recoverable guest sessions, encrypted messaging, Supabase authentication, explicit consent, atomic guest-to-patient conversion, patient intake messaging, PHI redaction, and conservative risk-gated AI responses.
 
-Full patient intake chat, full risk gating, Living Memory, clinician RBAC, and escalation are intentionally not implemented yet.
+Living Memory, clinician RBAC, and persisted Send-to-Clinic escalation are intentionally not implemented yet.
 
 ## Phase 1 features
 
@@ -45,6 +45,20 @@ Full patient intake chat, full risk gating, Living Memory, clinician RBAC, and e
 - Guest recovery credential revocation after conversion, with retry-safe hashed idempotency state.
 - Patient-owned RLS for patient, contact, consent, session, and converted-origin message reads.
 - Preserved acquisition attribution, referral context, and original encrypted guest messages so the patient does not need to repeat the concern.
+
+## Phase 4 features
+
+- Authenticated one-to-one patient messenger that preserves the converted guest thread.
+- Raw patient text encrypted before processing and never written to operational logs or funnel metadata.
+- Local redaction of names, Malaysian/Singaporean IC or ID formats, Malaysian phone numbers, and email addresses before any patient OpenAI request.
+- Deterministic High-risk handling for all four mandatory emergency phrases and conservative close variants.
+- Deterministic Medium-risk handling for ambiguous chest symptoms, diagnostic requests, medication-change requests, bleeding, faintness, and expressed uncertainty.
+- Structured OpenAI risk and draft proposals for messages not resolved by deterministic gates, using `store: false`, a hashed safety identifier, approved minimum context, and strict schema validation.
+- Server policy that prevents deterministic downgrades and suppresses advice for Medium, High, uncertain, invalid, ungrounded, or unsafe results.
+- One immutable `risk_assessment` per patient message with level, redacted reason, confidence, escalation requirement, rule matches, pipeline version, model provenance, and timestamp.
+- Low-risk responses require resolvable citations to active curated sources with verified source-span hashes.
+- Risk assessment, model provenance, assistant response, and citations are committed atomically before the response is displayed.
+- Fail-closed redaction and conservative model-timeout/error behavior.
 
 ## Prerequisites
 
@@ -103,6 +117,13 @@ For Phase 3, also configure Supabase Auth in the hosted dashboard:
 
 Do not run the new migration against production without first reviewing it in a preview project. For a linked hosted development project, apply migrations in order with `npx supabase db push`; alternatively paste `supabase/migrations/202609030002_patient_conversion.sql` into the SQL editor after the first two migrations.
 
+Phase 4 adds two migrations that must run in filename order. PostgreSQL requires the new `patient` enum value to commit before stored functions use it:
+
+1. `202609030003_patient_message_actor.sql`
+2. `202609030004_patient_risk_pipeline.sql`
+
+Run `npx supabase db push --dry-run` first, then `npx supabase db push` against the hosted development project.
+
 ## Run the application
 
 ```powershell
@@ -129,7 +150,36 @@ npm run lint
 npm run build
 ```
 
-The unit tests verify attribution normalization, strict input handling, all four mandatory emergency phrases, trust behavior, clinical-intent boundaries, response safety checks, and required identifier redaction.
+The unit tests verify attribution normalization, strict input handling, all four mandatory emergency phrases, trust behavior, clinical-intent boundaries, patient risk escalation, response safety, required identifier redaction, citation gating, and fail-safe behavior.
+
+## Manual Phase 4 verification
+
+1. Apply migrations `202609030003` and `202609030004`, then sign in and open a converted patient session.
+2. Send `Help me prepare what to tell the clinic.` Confirm a Low response includes at least one clickable approved source.
+3. Send `My name is John Doe, my IC is S1234567A and my phone is +60 12-345 6789.` Confirm the protected original remains visible to the patient while `redaction_summary` records categories and counts only.
+4. Send `My chest feels funny.` Confirm the persisted level is Medium, `escalation_required` is true, and no generated clinical advice is shown.
+5. Send `I have crushing chest pain.` Confirm the persisted level is High, `escalation_required` is true, OpenAI is skipped, and the response tells the patient to exit and dial 999.
+6. Temporarily use an invalid OpenAI key for a non-deterministic message. Confirm the result fails conservatively to Medium with safe handoff copy and a PHI-free model error code.
+
+Inspect persistence in the Supabase SQL editor:
+
+```sql
+select ra.risk_level, ra.risk_reason, ra.confidence,
+       ra.escalation_required, ra.rule_matches,
+       ra.pipeline_version, ra.provenance, ra.assessed_at,
+       mr.provider, mr.model, mr.status, mr.error_code, mr.store_requested
+from public.risk_assessments ra
+join public.model_runs mr on mr.id = ra.model_run_id
+order by ra.assessed_at desc;
+
+select c.assistant_message_id, ks.title, ks.publisher, ks.url,
+       c.source_start, c.source_end, c.quoted_span_hash
+from public.citations c
+join public.knowledge_sources ks on ks.id = c.knowledge_source_id
+order by c.created_at desc;
+```
+
+The Phase 4 risk result marks whether escalation is required but does not yet persist or deliver an escalation payload; that remains the Send-to-Clinic phase. The redaction layer is a data-minimization safeguard, not a claim of healthcare-regulatory compliance. Use synthetic data only.
 
 ## Manual Phase 3 verification
 
@@ -266,4 +316,6 @@ Delete `cookies.txt` after verification because it contains a live guest recover
 - `supabase/migrations/202609020001_phase1_foundation.sql`: Phase 1 database objects, atomic creation function, grants, and RLS.
 - `supabase/migrations/202609030001_guest_chat.sql`: encrypted guest messages, model provenance, value events, chat rate limiting, and retention cleanup.
 - `supabase/migrations/202609030002_patient_conversion.sql`: patient/contact/consent/session tables, patient-owned RLS, and atomic conversion workflow.
+- `supabase/migrations/202609030003_patient_message_actor.sql`: committed patient message actor required by PostgreSQL enum semantics.
+- `supabase/migrations/202609030004_patient_risk_pipeline.sql`: patient messages, risk assessments, approved sources, citations, RLS, and atomic safety completion.
 - `.env.example`: required public and server-only configuration.
