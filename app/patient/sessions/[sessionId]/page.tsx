@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { SignoutButton } from "@/app/components/signout-button";
+import { PatientChat } from "@/app/components/patient-chat";
 import { getPatientSessionView, PatientSessionError } from "@/src/features/patient-sessions/service";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -42,24 +43,7 @@ export default async function PatientSessionPage({ params }: { params: Promise<{
           </div>
         ) : null}
 
-        <section className="mt-7 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <header className="border-b border-slate-100 px-5 py-4 sm:px-6">
-            <h2 className="font-semibold text-slate-950">Preserved conversation</h2>
-            <p className="mt-1 text-xs text-slate-500">Visible here only after verified authentication, ownership checks, and consent.</p>
-          </header>
-          <div className="space-y-4 bg-slate-50/70 px-5 py-6 sm:px-6">
-            {session.messages.length ? session.messages.map((message) => {
-              const isPatient = message.actor === "guest";
-              return (
-                <div className={`flex ${isPatient ? "justify-end" : "justify-start"}`} key={message.id}>
-                  <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${isPatient ? "rounded-br-md bg-teal-700 text-white" : "rounded-bl-md bg-white text-slate-800"}`}>
-                    {message.content}
-                  </div>
-                </div>
-              );
-            }) : <p className="text-sm text-slate-500">No completed guest messages were recorded.</p>}
-          </div>
-        </section>
+        <PatientChat sessionId={session.id} initialMessages={session.messages} />
       </section>
     </main>
   );

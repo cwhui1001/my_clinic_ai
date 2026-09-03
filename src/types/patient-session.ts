@@ -1,5 +1,5 @@
-import type { GuestMessageDto } from "@/src/types/guest-chat";
 import type { PatientSessionStatus, SourceChannel } from "@/src/types/database";
+import type { PatientMessageDto } from "@/src/types/patient-chat";
 
 export type PatientSessionView = {
   id: string;
@@ -15,5 +15,5 @@ export type PatientSessionView = {
     creative: string | null;
     landingTimestamp: string;
   };
-  messages: GuestMessageDto[];
+  messages: PatientMessageDto[];
 };
