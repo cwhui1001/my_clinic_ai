@@ -211,3 +211,19 @@ export async function getLeadSessionByRecoveryToken(recoveryToken: string) {
 
   return toDto(data);
 }
+
+export async function markLeadAuthStarted(recoveryToken: string) {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("mark_lead_auth_started", {
+    p_recovery_token_hash: hashGuestToken(recoveryToken),
+  });
+
+  if (error || !data) {
+    if (error?.code === "P0003") {
+      throw new LeadSessionError("LeadSession not found.", "not_found");
+    }
+    throw new LeadSessionError("Unable to mark authentication start.", "database_error");
+  }
+
+  return data;
+}
