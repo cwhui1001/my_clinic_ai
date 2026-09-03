@@ -1,6 +1,7 @@
 import type { PatientSessionStatus, SourceChannel } from "@/src/types/database";
 import type { PatientMessageDto } from "@/src/types/patient-chat";
 import type { MemoryItemDto } from "@/src/types/memory";
+import type { PatientEscalationDto } from "@/src/types/escalation";
 
 export type PatientSessionView = {
   id: string;
@@ -18,4 +19,5 @@ export type PatientSessionView = {
   };
   messages: PatientMessageDto[];
   memory: MemoryItemDto[];
+  escalations: PatientEscalationDto[];
 };

@@ -4,18 +4,22 @@ import { FormEvent, useRef, useState } from "react";
 
 import type { PatientMessageDto, PatientReplyDto } from "@/src/types/patient-chat";
 import type { MemoryItemDto } from "@/src/types/memory";
+import type { PatientEscalationDto } from "@/src/types/escalation";
 
 export function PatientChat({
   sessionId,
   initialMessages,
   initialMemory,
+  initialEscalations,
 }: {
   sessionId: string;
   initialMessages: PatientMessageDto[];
   initialMemory: MemoryItemDto[];
+  initialEscalations: PatientEscalationDto[];
 }) {
   const [messages, setMessages] = useState(initialMessages);
   const [memory, setMemory] = useState(initialMemory);
+  const [escalations, setEscalations] = useState(initialEscalations);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +59,7 @@ export function PatientChat({
         payload.reply!.assistantMessage,
       ]);
       setMemory(payload.reply.memory);
+      setEscalations(payload.reply.escalations);
     } catch (reason) {
       setMessages((current) => current.filter((message) => message.id !== clientMessageId));
       setDraft(content);
@@ -67,6 +72,9 @@ export function PatientChat({
   return (
     <div className="mt-7 space-y-5">
       <PatientProfile memory={memory} />
+      <EscalationPanel escalations={escalations} onUpdate={(updated) => {
+        setEscalations((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
+      }} />
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
       <header className="border-b border-slate-100 px-5 py-4 sm:px-6">
         <h2 className="font-semibold text-slate-950">Nightingale AI patient messenger</h2>
@@ -102,6 +110,60 @@ export function PatientChat({
       </form>
       </section>
     </div>
+  );
+}
+
+function EscalationPanel({
+  escalations,
+  onUpdate,
+}: {
+  escalations: PatientEscalationDto[];
+  onUpdate: (escalation: PatientEscalationDto) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const required = escalations.find((item) => item.status === "required");
+  const sent = escalations.find((item) => item.status !== "required");
+
+  async function send() {
+    if (!required || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/patient/escalations/${required.id}/send`, { method: "POST" });
+      const payload = (await response.json()) as { escalation?: PatientEscalationDto; error?: string };
+      if (!response.ok || !payload.escalation) throw new Error(payload.error || "request_failed");
+      onUpdate(payload.escalation);
+    } catch {
+      setError("The handoff could not be sent securely. Please try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!required && !sent) return null;
+  return (
+    <section className={`rounded-3xl border p-5 shadow-sm sm:p-6 ${required?.riskLevel === "high" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`} aria-live="polite">
+      {required ? (
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Human review recommended</p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">Send this concern to the clinic</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">A protected summary, your current profile, the triggering message, and their provenance will be shared with the clinic. You can keep chatting after sending.</p>
+            {required.riskLevel === "high" ? <p className="mt-2 text-sm font-bold text-red-800">Do not wait for the clinic if this is an emergency. Exit Nightingale and dial 999 now.</p> : null}
+          </div>
+          <button className="primary-button !w-auto shrink-0" disabled={pending} onClick={send} type="button">{pending ? "Sending..." : "Send to Clinic"}</button>
+        </div>
+      ) : sent ? (
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Sent to clinic · {sent.status}</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">Your protected handoff is in the care-team queue</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-700">The clinic expects to respond within {sent.responseMinHours ?? 12}–{sent.responseMaxHours ?? 18} hours{sent.responseExpectedBy ? `, by approximately ${formatMemoryDate(sent.responseExpectedBy)}` : ""}. You may continue chatting here.</p>
+          {sent.riskLevel === "high" ? <p className="mt-2 text-sm font-bold text-red-800">For an emergency, do not wait for this response—exit Nightingale and dial 999.</p> : null}
+        </div>
+      ) : null}
+      {error ? <p className="mt-3 text-sm text-red-700" role="alert">{error}</p> : null}
+    </section>
   );
 }
 

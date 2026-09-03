@@ -2,6 +2,7 @@ import "server-only";
 
 import type { PatientMessageRequest } from "@/src/features/patient-chat/schema";
 import { currentFactsFromProfile, loadMemoryProfileForSession, toEncryptedMemoryPayload } from "@/src/features/memory/service";
+import { loadPatientEscalations } from "@/src/features/escalation/service";
 import { runPatientSafetyPipeline, type PipelineKnowledgeSource } from "@/src/features/patient-chat/pipeline";
 import { PATIENT_PROMPT_VERSION, RISK_PIPELINE_VERSION } from "@/src/features/risk/policy";
 import { REDACTION_VERSION } from "@/src/features/redaction/redact";
@@ -182,6 +183,7 @@ async function loadReply(patientMessage: MessageRow, assistantMessage: MessageRo
     patientMessage: toMessageDto(patientMessage, toRiskDto(risk), []),
     assistantMessage: toMessageDto(assistantMessage, null, citationDtos),
     memory: await loadMemoryProfileForSession(patientMessage.patient_session_id!),
+    escalations: await loadPatientEscalations(patientMessage.patient_session_id!),
   };
 }
 

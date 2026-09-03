@@ -5,6 +5,7 @@ import type {
   RiskLevel,
 } from "@/src/types/database";
 import type { MemoryItemDto } from "@/src/types/memory";
+import type { PatientEscalationDto } from "@/src/types/escalation";
 
 export type PatientRiskDto = {
   level: RiskLevel;
@@ -41,4 +42,5 @@ export type PatientReplyDto = {
   patientMessage: PatientMessageDto;
   assistantMessage: PatientMessageDto;
   memory: MemoryItemDto[];
+  escalations: PatientEscalationDto[];
 };

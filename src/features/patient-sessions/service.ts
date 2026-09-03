@@ -7,6 +7,7 @@ import { createSupabaseServerClient } from "@/src/server/supabase/server";
 import type { PatientSessionView } from "@/src/types/patient-session";
 import type { CitationDto, PatientMessageDto, PatientRiskDto } from "@/src/types/patient-chat";
 import { loadMemoryProfileForSession } from "@/src/features/memory/service";
+import { loadPatientEscalations } from "@/src/features/escalation/service";
 
 export class PatientSessionError extends Error {
   constructor(public readonly code: "unauthenticated" | "not_found" | "database_error") {
@@ -101,8 +102,12 @@ export async function getPatientSessionView(sessionId: string): Promise<PatientS
     .single();
   if (clinicError || !clinic) throw new PatientSessionError("database_error");
   let memory;
+  let escalations;
   try {
-    memory = await loadMemoryProfileForSession(patientSession.id);
+    [memory, escalations] = await Promise.all([
+      loadMemoryProfileForSession(patientSession.id),
+      loadPatientEscalations(patientSession.id),
+    ]);
   } catch {
     throw new PatientSessionError("database_error");
   }
@@ -133,6 +138,7 @@ export async function getPatientSessionView(sessionId: string): Promise<PatientS
       citations: citationsByMessage.get(message.id) ?? [],
     })),
     memory,
+    escalations,
   };
 }
 
