@@ -40,6 +40,8 @@ export type ConsentType = "healthcare_sharing" | "marketing_email";
 export type ConsentAction = "granted" | "withdrawn";
 export type RiskLevel = "low" | "medium" | "high";
 export type ResponseConfidence = "low" | "med" | "high";
+export type MemoryKind = "chief_complaint" | "symptom" | "medication" | "allergy";
+export type MemoryStatus = "active" | "stopped" | "resolved" | "corrected";
 export type FunnelEventName =
   | "visitor"
   | "conversation_started"
@@ -488,6 +490,60 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["citations"]["Insert"]>;
         Relationships: [];
       };
+      memory_items: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          patient_id: string;
+          kind: MemoryKind;
+          canonical_key: string;
+          current_revision_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          patient_id: string;
+          kind: MemoryKind;
+          canonical_key: string;
+          current_revision_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["memory_items"]["Insert"]>;
+        Relationships: [];
+      };
+      memory_revisions: {
+        Row: {
+          id: string;
+          memory_item_id: string;
+          value_ciphertext: string;
+          value_sha256: string;
+          status: MemoryStatus;
+          source_message_id: string;
+          supersedes_revision_id: string | null;
+          model_run_id: string | null;
+          confidence: ResponseConfidence;
+          effective_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          memory_item_id: string;
+          value_ciphertext: string;
+          value_sha256: string;
+          status: MemoryStatus;
+          source_message_id: string;
+          supersedes_revision_id?: string | null;
+          model_run_id?: string | null;
+          confidence: ResponseConfidence;
+          effective_at?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["memory_revisions"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -594,6 +650,16 @@ export type Database = {
         };
         Returns: Database["public"]["Tables"]["messages"]["Row"][];
       };
+      complete_patient_turn_with_memory: {
+        Args: Database["public"]["Functions"]["complete_patient_turn"]["Args"] & {
+          p_memory_proposals: Json;
+        };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
+      };
+      apply_patient_memory: {
+        Args: { p_patient_session_id: string; p_memory_proposals: Json };
+        Returns: undefined;
+      };
       expire_lead_sessions: {
         Args: Record<PropertyKey, never>;
         Returns: number;
@@ -616,6 +682,8 @@ export type Database = {
       consent_action: ConsentAction;
       risk_level: RiskLevel;
       response_confidence: ResponseConfidence;
+      memory_kind: MemoryKind;
+      memory_status: MemoryStatus;
     };
     CompositeTypes: Record<string, never>;
   };
