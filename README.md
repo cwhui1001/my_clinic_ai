@@ -1,8 +1,8 @@
 # Nightingale MVP
 
-Nightingale is a secure first-touch-to-care PWA prototype. Phases 1 and 2 implement acquisition attribution, recoverable guest sessions, encrypted guest messaging, non-diagnostic guest value, PHI redaction, and OpenAI-backed general responses.
+Nightingale is a secure first-touch-to-care PWA prototype. Phases 1 through 3 implement acquisition attribution, recoverable guest sessions, encrypted guest messaging, non-diagnostic guest value, PHI redaction, Supabase authentication, explicit consent, and atomic guest-to-patient conversion.
 
-Patient intake, full risk gating, Living Memory, consent conversion, and clinician escalation are intentionally not implemented yet.
+Full patient intake chat, full risk gating, Living Memory, clinician RBAC, and escalation are intentionally not implemented yet.
 
 ## Phase 1 features
 
@@ -33,6 +33,18 @@ Patient intake, full risk gating, Living Memory, consent conversion, and clinici
 - Typed `value_event` records and PHI-free `model_runs` provenance.
 - Thirty guest messages per LeadSession per hour, plus idempotent client message IDs.
 - Expiry removes unconverted encrypted messages while retaining PHI-free funnel events.
+
+## Phase 3 features
+
+- Supabase Auth email/password signup and login using server-managed auth cookies.
+- Email verification required before consent or patient conversion.
+- Phone collection at signup, held in an encrypted HttpOnly cookie until consent.
+- Explicit, versioned healthcare-sharing consent naming the destination clinic; marketing consent remains a separate consent type and is never inferred.
+- One atomic, idempotent `SECURITY DEFINER` conversion function with an empty search path, explicit `auth.uid()` checks, row locking, and restricted grants.
+- Immutable clinic-scoped patient identity, changeable contact-point history, append-only consent events, and a `PatientSession` linked to the original `LeadSession`.
+- Guest recovery credential revocation after conversion, with retry-safe hashed idempotency state.
+- Patient-owned RLS for patient, contact, consent, session, and converted-origin message reads.
+- Preserved acquisition attribution, referral context, and original encrypted guest messages so the patient does not need to repeat the concern.
 
 ## Prerequisites
 
@@ -83,6 +95,14 @@ npx supabase status
 
 Never expose the secret/service-role key in browser code or commit it.
 
+For Phase 3, also configure Supabase Auth in the hosted dashboard:
+
+1. Under **Authentication → URL Configuration**, set the local Site URL to `http://localhost:3000` and allow `http://localhost:3000/auth/callback` as a redirect URL. Add the equivalent production URLs when deployed.
+2. Keep email confirmation enabled.
+3. The default PKCE confirmation flow uses `/auth/callback`. If you customize the confirmation email to use a token hash, point it to `/auth/confirm?token_hash={{ .TokenHash }}&type=email` on your Site URL.
+
+Do not run the new migration against production without first reviewing it in a preview project. For a linked hosted development project, apply migrations in order with `npx supabase db push`; alternatively paste `supabase/migrations/202609030002_patient_conversion.sql` into the SQL editor after the first two migrations.
+
 ## Run the application
 
 ```powershell
@@ -110,6 +130,40 @@ npm run build
 ```
 
 The unit tests verify attribution normalization, strict input handling, all four mandatory emergency phrases, trust behavior, clinical-intent boundaries, response safety checks, and required identifier redaction.
+
+## Manual Phase 3 verification
+
+1. Apply `202609030002_patient_conversion.sql` to the hosted development project and configure the Auth URLs above.
+2. Start a guest session and ask a service, hours, availability, trust, or contextual concern question. Confirm **Continue securely** appears only after value or clinical intent.
+3. Create an account. Confirm the phone is not written to `contact_points` before consent, and follow the verification email.
+4. On `/consent`, confirm the named clinic is shown and the healthcare checkbox is initially unchecked. Submit consent.
+5. Confirm the resulting patient page shows the original thread, referral context when present, source attribution, and consent timestamp without asking the concern again.
+6. Copy the original recovery URL before conversion and try it afterward. It must no longer restore guest access.
+7. In a second account or signed-out browser, navigate directly to the patient-session URL. RLS must return no session content.
+
+Inspect the conversion in the Supabase SQL editor:
+
+```sql
+select ls.status, ls.converted_patient_id, ls.converted_patient_session_id,
+       ps.origin_lead_session_id, p.auth_user_id
+from public.lead_sessions ls
+join public.patient_sessions ps on ps.id = ls.converted_patient_session_id
+join public.patients p on p.id = ps.patient_id
+order by ls.converted_at desc
+limit 5;
+
+select type, action, policy_version, notice_version, captured_via, occurred_at
+from public.consent_events
+order by occurred_at desc
+limit 5;
+
+select name, lead_session_id, patient_session_id, source_channel, occurred_at
+from public.funnel_events
+where name in ('auth_started', 'consented', 'patient_created')
+order by occurred_at desc;
+```
+
+Verify there is one linked patient session, one append-only healthcare-sharing grant, the original lead attribution is unchanged, and the phone contact contains ciphertext plus a hash rather than plaintext.
 
 ## Manual Phase 2 verification
 
@@ -211,4 +265,5 @@ Delete `cookies.txt` after verification because it contains a live guest recover
 - `ARCHITECTURE.md`: proposed MVP architecture and later-phase models.
 - `supabase/migrations/202609020001_phase1_foundation.sql`: Phase 1 database objects, atomic creation function, grants, and RLS.
 - `supabase/migrations/202609030001_guest_chat.sql`: encrypted guest messages, model provenance, value events, chat rate limiting, and retention cleanup.
+- `supabase/migrations/202609030002_patient_conversion.sql`: patient/contact/consent/session tables, patient-owned RLS, and atomic conversion workflow.
 - `.env.example`: required public and server-only configuration.
