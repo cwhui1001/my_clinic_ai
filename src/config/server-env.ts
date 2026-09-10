@@ -22,6 +22,12 @@ const openAIEnvSchema = z.object({
     .default(15000),
 });
 
+const webPushEnvSchema = z.object({
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().min(40),
+  VAPID_PRIVATE_KEY: z.string().min(20),
+  VAPID_SUBJECT: z.string().refine((value) => value.startsWith("mailto:") || value.startsWith("https://")),
+});
+
 export function getServerEnv() {
   const env = serverEnvSchema.parse({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -47,4 +53,14 @@ export function getOpenAIEnv() {
     OPENAI_MODEL: process.env.OPENAI_MODEL,
     OPENAI_REQUEST_TIMEOUT_MS: process.env.OPENAI_REQUEST_TIMEOUT_MS,
   });
+}
+
+export function getWebPushEnv() {
+  const values = {
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+    VAPID_SUBJECT: process.env.VAPID_SUBJECT,
+  };
+  if (!values.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !values.VAPID_PRIVATE_KEY || !values.VAPID_SUBJECT) return null;
+  return webPushEnvSchema.parse(values);
 }

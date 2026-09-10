@@ -145,7 +145,7 @@ function EscalationPanel({
 
   if (!required && !sent) return null;
   return (
-    <section className={`rounded-3xl border p-5 shadow-sm sm:p-6 ${required?.riskLevel === "high" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`} aria-live="polite">
+    <section id={sent ? `escalation-${sent.id}` : undefined} className={`rounded-3xl border p-5 shadow-sm sm:p-6 ${required?.riskLevel === "high" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`} aria-live="polite">
       {required ? (
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
@@ -160,7 +160,8 @@ function EscalationPanel({
         <div>
           <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Sent to clinic · {sent.status}</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">Your protected handoff is in the care-team queue</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-700">The clinic expects to respond within {sent.responseMinHours ?? 12}–{sent.responseMaxHours ?? 18} hours{sent.responseExpectedBy ? `, by approximately ${formatMemoryDate(sent.responseExpectedBy)}` : ""}. You may continue chatting here.</p>
+          {sent.responseExpectedBy ? <p className="mt-2 text-sm leading-6 text-slate-700">Estimated response deadline recorded by the clinic: {formatMemoryDate(sent.responseExpectedBy)}. This is an expectation, not a guaranteed response time.</p> : <p className="mt-2 text-sm leading-6 text-slate-700">The handoff is recorded, but no response deadline is available. Return to this secure conversation to check for updates.</p>}
+          {sent.responses.length ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4"><p className="text-xs font-bold uppercase text-emerald-800">Clinic response{sent.clinicianResponseAt ? ` · ${formatMemoryDate(sent.clinicianResponseAt)}` : ""}</p>{sent.responses.map((response) => <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800" key={response.id}>{response.content}</p>)}</div> : <p className="mt-3 text-xs text-slate-600">No clinician response has been recorded yet.</p>}
           {sent.riskLevel === "high" ? <p className="mt-2 text-sm font-bold text-red-800">For an emergency, do not wait for this response—exit Nightingale and dial 999.</p> : null}
         </div>
       ) : null}

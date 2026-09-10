@@ -23,17 +23,25 @@ export async function loadPatientEscalations(patientSessionId: string): Promise<
   const supabase = await createSupabaseServerClient();
   const { data: escalations, error } = await supabase
     .from("escalations")
-    .select("id, trigger_message_id, risk_assessment_id, status, response_min_hours, response_max_hours, response_expected_by, sent_at, created_at")
+    .select("id, trigger_message_id, risk_assessment_id, status, response_min_hours, response_max_hours, response_expected_by, clinician_response_at, sent_at, created_at")
     .eq("patient_session_id", patientSessionId)
     .order("created_at", { ascending: false });
   if (error) throw new EscalationError(error.code === "PGRST301" ? "unauthenticated" : "database_error");
 
   const riskIds = (escalations ?? []).map((item) => item.risk_assessment_id);
-  const { data: risks, error: riskError } = riskIds.length
-    ? await supabase.from("risk_assessments").select("id, risk_level").in("id", riskIds)
-    : { data: [], error: null };
-  if (riskError) throw new EscalationError("database_error");
+  const escalationIds = (escalations ?? []).map((item) => item.id);
+  const [{ data: risks, error: riskError }, { data: responses, error: responseError }] = await Promise.all([
+    riskIds.length ? supabase.from("risk_assessments").select("id, risk_level").in("id", riskIds) : Promise.resolve({ data: [], error: null }),
+    escalationIds.length ? supabase.from("clinician_responses").select("id, escalation_id, content_ciphertext, created_at").in("escalation_id", escalationIds).order("created_at") : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (riskError || responseError) throw new EscalationError("database_error");
   const riskById = new Map((risks ?? []).map((risk) => [risk.id, risk.risk_level]));
+  const responsesByEscalation = new Map<string, PatientEscalationDto["responses"]>();
+  for (const response of responses ?? []) {
+    const values = responsesByEscalation.get(response.escalation_id) ?? [];
+    values.push({ id: response.id, content: decryptProtectedContent(response.content_ciphertext), createdAt: response.created_at });
+    responsesByEscalation.set(response.escalation_id, values);
+  }
 
   return (escalations ?? []).flatMap((item): PatientEscalationDto[] => {
     const riskLevel = riskById.get(item.risk_assessment_id);
@@ -47,6 +55,8 @@ export async function loadPatientEscalations(patientSessionId: string): Promise<
       responseExpectedBy: item.response_expected_by,
       sentAt: item.sent_at,
       createdAt: item.created_at,
+      clinicianResponseAt: item.clinician_response_at,
+      responses: responsesByEscalation.get(item.id) ?? [],
     }] : [];
   });
 }
@@ -101,6 +111,8 @@ export async function queuePatientEscalation(escalationId: string): Promise<Pati
     responseExpectedBy: queued.response_expected_by,
     sentAt: queued.sent_at,
     createdAt: queued.created_at,
+    clinicianResponseAt: queued.clinician_response_at,
+    responses: [],
   };
 }
 

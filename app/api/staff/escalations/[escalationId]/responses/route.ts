@@ -5,6 +5,7 @@ import { clinicianResponseSchema } from "@/src/features/staff/schema";
 import { respondToEscalation } from "@/src/features/staff/service";
 import { readJsonBody } from "@/src/server/http/read-json";
 import { writeAuditLog } from "@/src/server/logging/audit";
+import { deliverResponseNotification } from "@/src/features/notifications/service";
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,7 +20,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ es
 
   try {
     const responseId = await respondToEscalation(escalationId, parsed.data.content);
-    return NextResponse.json({ responseId }, { status: 201, headers: NO_STORE_HEADERS });
+    const notificationStatus = await deliverResponseNotification(responseId);
+    return NextResponse.json({ responseId, notificationStatus }, { status: 201, headers: NO_STORE_HEADERS });
   } catch (error) {
     writeAuditLog({ action: "escalation.respond", outcome: "failure", resourceId: escalationId, errorCode: error instanceof StaffAccessError ? error.code : "unexpected_error" });
     if (error instanceof StaffAccessError) {

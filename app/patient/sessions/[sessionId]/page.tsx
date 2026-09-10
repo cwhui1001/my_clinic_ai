@@ -3,6 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { SignoutButton } from "@/app/components/signout-button";
 import { PatientChat } from "@/app/components/patient-chat";
 import { getPatientSessionView, PatientSessionError } from "@/src/features/patient-sessions/service";
+import { PushNotificationControl } from "@/app/components/push-notification-control";
+import { getWebPushEnv } from "@/src/config/server-env";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -14,10 +16,13 @@ export default async function PatientSessionPage({ params }: { params: Promise<{
   try {
     session = await getPatientSessionView(sessionId);
   } catch (error) {
-    if (error instanceof PatientSessionError && error.code === "unauthenticated") redirect("/signup?mode=login");
+    if (error instanceof PatientSessionError && error.code === "unauthenticated") {
+      redirect(`/login?next=${encodeURIComponent(`/patient/sessions/${sessionId}`)}`);
+    }
     if (error instanceof PatientSessionError && error.code === "not_found") notFound();
     throw error;
   }
+  const webPush = getWebPushEnv();
 
   return (
     <main className="page-shell items-start">
@@ -56,6 +61,7 @@ export default async function PatientSessionPage({ params }: { params: Promise<{
           initialMemory={session.memory}
           initialEscalations={session.escalations}
         />
+        <PushNotificationControl patientSessionId={session.id} publicKey={webPush?.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null} />
       </section>
     </main>
   );

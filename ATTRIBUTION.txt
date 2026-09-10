@@ -32,6 +32,11 @@ zod 4.5.4
   License: MIT
   Project: https://github.com/colinhacks/zod
 
+web-push 3.x
+  Resolved version: package-lock.json
+  License: MIT
+  Project: https://github.com/web-push-libs/web-push
+
 DEVELOPMENT LIBRARIES
 
 @tailwindcss/postcss 4.x and tailwindcss 4.x
@@ -39,7 +44,7 @@ DEVELOPMENT LIBRARIES
   License: MIT
   Project: https://github.com/tailwindlabs/tailwindcss
 
-@types/node 20.x, @types/react 19.x, @types/react-dom 19.x
+@types/node 20.x, @types/react 19.x, @types/react-dom 19.x, @types/web-push 3.x
   Resolved versions: package-lock.json
   License: MIT
   Project: https://github.com/DefinitelyTyped/DefinitelyTyped

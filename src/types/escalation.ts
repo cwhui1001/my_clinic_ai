@@ -10,6 +10,8 @@ export type PatientEscalationDto = {
   responseExpectedBy: string | null;
   sentAt: string | null;
   createdAt: string;
+  clinicianResponseAt: string | null;
+  responses: Array<{ id: string; content: string; createdAt: string }>;
 };
 
 export type StaffMembershipDto = {

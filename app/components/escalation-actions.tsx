@@ -7,6 +7,7 @@ export function EscalationActions({ escalationId, status, canRespond }: { escala
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [delivery, setDelivery] = useState<string | null>(null);
 
   async function acknowledge() {
     setPending(true);
@@ -21,15 +22,18 @@ export function EscalationActions({ escalationId, status, canRespond }: { escala
     event.preventDefault();
     setPending(true);
     setError(null);
+    setDelivery(null);
     const form = new FormData(event.currentTarget);
     const response = await fetch(`/api/staff/escalations/${escalationId}/responses`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: String(form.get("content") || "") }),
     });
+    const payload = await response.json() as { notificationStatus?: string };
     if (!response.ok) setError("The protected response could not be recorded.");
     else {
       event.currentTarget.reset();
+      setDelivery(notificationMessage(payload.notificationStatus));
       router.refresh();
     }
     setPending(false);
@@ -58,6 +62,14 @@ export function EscalationActions({ escalationId, status, canRespond }: { escala
         </form>
       ) : <p className="mt-3 text-sm text-slate-600">Staff may review and acknowledge. A Nurse or Clinician role is required to record a clinical response.</p>}
       {error ? <p className="mt-3 text-sm text-red-700" role="alert">{error}</p> : null}
+      {delivery ? <p className="mt-3 text-sm text-slate-600" role="status">{delivery}</p> : null}
     </section>
   );
+}
+
+function notificationMessage(status?: string) {
+  if (status === "delivered") return "Response recorded. A PHI-free device alert was delivered to at least one subscribed device.";
+  if (status === "no_subscription") return "Response recorded. The patient has no subscribed device, so no alert was sent.";
+  if (status === "transport_unavailable") return "Response recorded. Device-alert transport is not configured, so no alert was sent.";
+  return "Response recorded. Device-alert delivery failed; the response remains available in the secure conversation.";
 }
