@@ -1,15 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const userSurfaces = [
-  "app/components/guest-chat.tsx",
-  "app/components/patient-chat.tsx",
-  "app/components/lead-session-starter.tsx",
-  "app/components/consent-form.tsx",
-  "app/components/push-notification-control.tsx",
-  "app/components/guest-recovery.tsx",
-].map((file) => readFileSync(resolve(file), "utf8")).join("\n");
+const userSurfaces = applicationFiles(resolve("app"))
+  .filter((file) => file.endsWith(".tsx"))
+  .map((file) => readFileSync(file, "utf8"))
+  .join("\n");
 
 describe("test_scenario_06_no_unearned_email_promise", () => {
   it("contains no promise to email a summary or notify through an unavailable channel", () => {
@@ -22,3 +18,10 @@ describe("test_scenario_06_no_unearned_email_promise", () => {
     expect(userSurfaces).toContain("This is an expectation, not a guaranteed response time.");
   });
 });
+
+function applicationFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    return entry.isDirectory() ? applicationFiles(path) : [path];
+  });
+}

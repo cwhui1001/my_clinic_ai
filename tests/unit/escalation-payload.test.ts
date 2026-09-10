@@ -6,7 +6,7 @@ import type { MemoryItemDto } from "../../src/types/memory";
 const TRIGGER_ID = "10000000-0000-4000-8000-000000000001";
 const REVISION_ID = "10000000-0000-4000-8000-000000000002";
 
-describe("Send-to-Clinic payload", () => {
+describe("test_scenario_18_cold_handoff_payload_builder", () => {
   it("contains the trigger, one-to-five triage bullets, profile snapshot, and normalized provenance", () => {
     const memory: MemoryItemDto[] = [{
       id: "10000000-0000-4000-8000-000000000003",
