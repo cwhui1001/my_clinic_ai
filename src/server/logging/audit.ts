@@ -1,22 +1,12 @@
 import "server-only";
+import { sanitizeAuditEntry, type SafeAuditInput } from "@/src/server/logging/sanitize";
 
-type AuditEntry = {
-  action: string;
-  outcome: "success" | "failure";
-  resourceId?: string;
-  errorCode?: string;
-};
-
-export function writeAuditLog(entry: AuditEntry) {
+export function writeAuditLog(entry: SafeAuditInput) {
   // Allowlisted fields only. Never pass request bodies, message/context text,
   // email, phone, names, identifiers, or exception messages here.
   console.info(
     JSON.stringify({
-      event: "audit",
-      action: entry.action,
-      outcome: entry.outcome,
-      resource_id: entry.resourceId,
-      error_code: entry.errorCode,
+      ...sanitizeAuditEntry(entry),
       occurred_at: new Date().toISOString(),
     }),
   );

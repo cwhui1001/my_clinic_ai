@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { PipelineKnowledgeSource } from "@/src/features/patient-chat/pipeline";
 import { getOpenAIEnv } from "@/src/config/server-env";
+import { fetchWithProviderTimeout, ProviderRequestTimeoutError } from "@/src/server/openai/provider-timeout";
 
 type OpenAIResponsePayload = {
   id?: string;
@@ -52,18 +53,15 @@ export async function createPatientModelResponse(input: {
     throw new PatientModelError("configuration");
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), env.OPENAI_REQUEST_TIMEOUT_MS);
   const startedAt = Date.now();
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetchWithProviderTimeout("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
-      signal: controller.signal,
       body: JSON.stringify({
         model: env.OPENAI_MODEL,
         store: false,
@@ -153,7 +151,7 @@ export async function createPatientModelResponse(input: {
           },
         },
       }),
-    });
+    }, env.OPENAI_REQUEST_TIMEOUT_MS);
 
     if (!response.ok) throw new PatientModelError("provider");
     const payload = (await response.json()) as OpenAIResponsePayload;
@@ -177,12 +175,10 @@ export async function createPatientModelResponse(input: {
     };
   } catch (error) {
     if (error instanceof PatientModelError) throw error;
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof ProviderRequestTimeoutError) {
       throw new PatientModelError("timeout");
     }
     throw new PatientModelError("provider");
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

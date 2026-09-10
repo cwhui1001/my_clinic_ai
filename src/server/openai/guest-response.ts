@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { getOpenAIEnv } from "@/src/config/server-env";
+import { fetchWithProviderTimeout, ProviderRequestTimeoutError } from "@/src/server/openai/provider-timeout";
 import type { GuestIntent } from "@/src/features/guest-chat/policy";
 
 type ClinicPublicProfile = {
@@ -58,18 +59,15 @@ export async function createGuestModelReply(input: {
   const outputSchema = z.object({
     answer: z.string().trim().min(1).max(maximumLength),
   });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), env.OPENAI_REQUEST_TIMEOUT_MS);
   const startedAt = Date.now();
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetchWithProviderTimeout("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
-      signal: controller.signal,
       body: JSON.stringify({
         model: env.OPENAI_MODEL,
         store: false,
@@ -122,7 +120,7 @@ export async function createGuestModelReply(input: {
           },
         },
       }),
-    });
+    }, env.OPENAI_REQUEST_TIMEOUT_MS);
 
     if (!response.ok) throw new GuestModelError("provider");
 
@@ -147,11 +145,9 @@ export async function createGuestModelReply(input: {
     };
   } catch (error) {
     if (error instanceof GuestModelError) throw error;
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof ProviderRequestTimeoutError) {
       throw new GuestModelError("timeout");
     }
     throw new GuestModelError("provider");
-  } finally {
-    clearTimeout(timeout);
   }
 }
