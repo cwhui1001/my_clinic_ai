@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   HEALTHCARE_CONSENT_NOTICE_VERSION,
   HEALTHCARE_CONSENT_POLICY_VERSION,
+  MARKETING_CONSENT_NOTICE_VERSION,
+  MARKETING_CONSENT_POLICY_VERSION,
   PENDING_PHONE_COOKIE,
 } from "@/src/features/consent/constants";
 import { conversionRequestSchema, normalizePhone } from "@/src/features/consent/schema";
@@ -32,14 +34,16 @@ export async function POST(request: NextRequest) {
       !parsed.success ||
       !phone ||
       parsed.data.policyVersion !== HEALTHCARE_CONSENT_POLICY_VERSION ||
-      parsed.data.noticeVersion !== HEALTHCARE_CONSENT_NOTICE_VERSION
+      parsed.data.noticeVersion !== HEALTHCARE_CONSENT_NOTICE_VERSION ||
+      parsed.data.marketingPolicyVersion !== MARKETING_CONSENT_POLICY_VERSION ||
+      parsed.data.marketingNoticeVersion !== MARKETING_CONSENT_NOTICE_VERSION
     ) {
       return jsonError("invalid_consent", 400);
     }
 
     const supabase = await createSupabaseServerClient();
     const { data: patientSessionId, error } = await supabase.rpc(
-      "convert_lead_to_patient",
+      "convert_lead_to_patient_v2",
       {
         p_recovery_token_hash: hashGuestToken(recoveryToken),
         p_phone_ciphertext: encryptProtectedContent(phone),
@@ -47,6 +51,9 @@ export async function POST(request: NextRequest) {
         p_consent_granted: parsed.data.healthcareConsent,
         p_policy_version: parsed.data.policyVersion,
         p_notice_version: parsed.data.noticeVersion,
+        p_marketing_consent: parsed.data.marketingConsent,
+        p_marketing_policy_version: parsed.data.marketingPolicyVersion,
+        p_marketing_notice_version: parsed.data.marketingNoticeVersion,
       },
     );
 
@@ -68,7 +75,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     if (error instanceof AuthenticationError) {
-      return jsonError(error.code, error.code === "email_unverified" ? 403 : 401);
+      return jsonError(error.code, error.code === "identity_unverified" ? 403 : 401);
     }
     writeAuditLog({ action: "lead.convert", outcome: "failure", errorCode: "conversion_failed" });
     return jsonError("conversion_failed", 503);
@@ -82,7 +89,7 @@ function jsonError(code: string, status: number) {
 function mapConversionError(code?: string) {
   if (code === "P0003") return { code: "guest_session_required", status: 404 };
   if (code === "P0010") return { code: "unauthenticated", status: 401 };
-  if (code === "P0011") return { code: "email_unverified", status: 403 };
+  if (code === "P0011") return { code: "identity_unverified", status: 403 };
   if (code === "P0012") return { code: "invalid_consent", status: 400 };
   if (code === "P0013") return { code: "invalid_phone", status: 400 };
   if (code === "P0014") return { code: "value_required", status: 409 };

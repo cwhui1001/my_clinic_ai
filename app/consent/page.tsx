@@ -14,7 +14,7 @@ export default async function ConsentPage() {
   try {
     user = await getVerifiedUser();
   } catch (error) {
-    if (error instanceof AuthenticationError && error.code === "email_unverified") redirect("/auth/check-email");
+    if (error instanceof AuthenticationError && error.code === "identity_unverified") redirect("/auth/check-email");
     redirect("/signup?mode=login");
   }
 
@@ -45,7 +45,7 @@ export default async function ConsentPage() {
         <p className="eyebrow">Explicit consent</p>
         <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">Choose whether to continue as a patient</h1>
         <p className="mt-4 text-sm leading-6 text-slate-600">
-          Your email <strong className="text-slate-800">{user.email}</strong> is verified. Nothing from the guest conversation is visible to {clinicName} until you actively consent below.
+          Your <strong className="text-slate-800">{user.email ? "email address" : "mobile number"}</strong> is verified. Nothing from the guest conversation is visible to {clinicName} until you actively consent below.
         </p>
         <div className="mt-5 rounded-2xl border border-teal-100 bg-teal-50 p-4 text-sm leading-6 text-teal-950">
           If you consent, Nightingale will preserve the conversation and its original source, create a patient session linked to your verified account, and make that context available for healthcare follow-up. This is not marketing consent.

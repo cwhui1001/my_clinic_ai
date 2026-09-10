@@ -6,8 +6,17 @@ export const conversionRequestSchema = z
     healthcareConsent: z.literal(true),
     policyVersion: z.string().min(1).max(100),
     noticeVersion: z.string().min(1).max(100),
+    marketingConsent: z.boolean(),
+    marketingPolicyVersion: z.string().min(1).max(100),
+    marketingNoticeVersion: z.string().min(1).max(100),
   })
   .strict();
+
+export const marketingConsentRequestSchema = z.object({
+  action: z.enum(["granted", "withdrawn"]),
+  policyVersion: z.string().min(1).max(100),
+  noticeVersion: z.string().min(1).max(100),
+}).strict();
 
 export function normalizePhone(value: string) {
   const normalized = value.replace(/[\s().-]/g, "");
