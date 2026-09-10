@@ -10,20 +10,28 @@ export function extractDeterministicMemory(input: {
   const proposals: MemoryProposal[] = [];
   const text = input.message.trim();
 
+  const medicationFacts = input.currentFacts.filter((fact) => fact.kind === "medication");
   const medication = text.match(
     /\b(?:i take|i'm taking|i am taking|currently taking|started taking)\s+([a-z][a-z0-9-]{1,39})(?:\s+(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml)))?/i,
   );
   if (medication) {
-    const name = medication[1];
-    proposals.push({
-      sourceMessageId: input.sourceMessageId,
-      kind: "medication",
-      canonicalKey: canonicalize(name),
-      value: encodeValue({ name, dose: medication[2] ?? null }),
-      status: "active",
-      confidence: "high",
-      effectiveAt: null,
-    });
+    const reference = medication[1];
+    const existing = isMedicationPronoun(reference)
+      ? medicationFacts.length === 1 ? medicationFacts[0] : null
+      : medicationFacts.find((fact) => fact.canonicalKey === canonicalize(reference));
+    if (!isMedicationPronoun(reference) || existing) {
+      proposals.push({
+        sourceMessageId: input.sourceMessageId,
+        kind: "medication",
+        canonicalKey: existing?.canonicalKey ?? canonicalize(reference),
+        value: existing
+          ? resumeMedication(existing.value, medication[2] ?? null)
+          : encodeValue({ name: reference, dose: medication[2] ?? null }),
+        status: "active",
+        confidence: "high",
+        effectiveAt: null,
+      });
+    }
   }
 
   const stopped = text.match(
@@ -34,10 +42,11 @@ export function extractDeterministicMemory(input: {
       /\b(?:have stopped taking|stopped taking|have stopped|stopped|no longer (?:take|taking))\s+(?!last\b|yesterday\b|today\b)([a-z][a-z0-9-]{1,39})/i,
     );
     const timeline = text.match(/\b(last\s+(?:week|month|year)|yesterday|today|\d+\s+days?\s+ago)\b/i)?.[1] ?? null;
-    const namedKey = namedMedication?.[1] ? canonicalize(namedMedication[1]) : null;
-    const activeMedications = input.currentFacts.filter(
-      (fact) => fact.kind === "medication" && fact.status === "active",
-    );
+    const namedReference = namedMedication?.[1] ?? null;
+    const namedKey = namedReference && !isMedicationPronoun(namedReference)
+      ? canonicalize(namedReference)
+      : null;
+    const activeMedications = medicationFacts.filter((fact) => fact.status === "active");
     const existing = namedKey
       ? activeMedications.find((fact) => fact.canonicalKey === namedKey)
       : activeMedications.length === 1
@@ -64,6 +73,22 @@ export function extractDeterministicMemory(input: {
       kind: "allergy",
       canonicalKey: canonicalize(substance),
       value: encodeValue({ substance }),
+      status: "active",
+      confidence: "high",
+      effectiveAt: null,
+    });
+  }
+
+  const allergyReaction = text.match(
+    /\b([a-z][a-z0-9-]{1,39})\s+(?:gave|gives|caused|causes)\s+me\s+(?:an?\s+)?(rash|hives|swelling|reaction)\b/i,
+  );
+  if (allergyReaction) {
+    const substance = allergyReaction[1];
+    proposals.push({
+      sourceMessageId: input.sourceMessageId,
+      kind: "allergy",
+      canonicalKey: canonicalize(substance),
+      value: encodeValue({ substance, reaction: allergyReaction[2] }),
       status: "active",
       confidence: "high",
       effectiveAt: null,
@@ -150,6 +175,21 @@ function mergeTimeline(value: string, timeline: string | null) {
   } catch {
     return encodeValue({ value, stoppedTimeline: timeline });
   }
+}
+
+function resumeMedication(value: string, dose: string | null) {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const current = { ...parsed };
+    delete current.stoppedTimeline;
+    return JSON.stringify({ ...current, dose: dose ?? current.dose ?? null }).slice(0, MAX_VALUE_LENGTH);
+  } catch {
+    return encodeValue({ value, dose });
+  }
+}
+
+function isMedicationPronoun(value: string) {
+  return /^(?:it|that|medication|medicine)$/i.test(value);
 }
 
 function deduplicate(proposals: MemoryProposal[]) {

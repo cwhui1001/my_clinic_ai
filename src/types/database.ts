@@ -42,6 +42,9 @@ export type RiskLevel = "low" | "medium" | "high";
 export type ResponseConfidence = "low" | "med" | "high";
 export type MemoryKind = "chief_complaint" | "symptom" | "medication" | "allergy";
 export type MemoryStatus = "active" | "stopped" | "resolved" | "corrected";
+export type MemoryBootstrapStatus = "pending" | "completed" | "failed";
+export type MemoryConflictKind = "allergy_presence" | "medication_status" | "dosage";
+export type MemoryConflictStatus = "open" | "resolved";
 export type MemberRole = "staff" | "nurse" | "clinician";
 export type EscalationStatus = "required" | "queued" | "acknowledged" | "responded" | "closed";
 export type FunnelEventName =
@@ -361,6 +364,10 @@ export type Database = {
           patient_id: string;
           origin_lead_session_id: string;
           status: PatientSessionStatus;
+          memory_bootstrap_status: MemoryBootstrapStatus;
+          memory_bootstrap_attempts: number;
+          memory_bootstrap_error_code: string | null;
+          memory_bootstrap_completed_at: string | null;
           started_at: string;
           closed_at: string | null;
           updated_at: string;
@@ -371,6 +378,10 @@ export type Database = {
           patient_id: string;
           origin_lead_session_id: string;
           status?: PatientSessionStatus;
+          memory_bootstrap_status?: MemoryBootstrapStatus;
+          memory_bootstrap_attempts?: number;
+          memory_bootstrap_error_code?: string | null;
+          memory_bootstrap_completed_at?: string | null;
           started_at?: string;
           closed_at?: string | null;
           updated_at?: string;
@@ -526,6 +537,8 @@ export type Database = {
           value_sha256: string;
           status: MemoryStatus;
           source_message_id: string;
+          source_content_sha256: string;
+          source_snapshot_ciphertext: string;
           supersedes_revision_id: string | null;
           model_run_id: string | null;
           confidence: ResponseConfidence;
@@ -539,6 +552,8 @@ export type Database = {
           value_sha256: string;
           status: MemoryStatus;
           source_message_id: string;
+          source_content_sha256?: string;
+          source_snapshot_ciphertext?: string;
           supersedes_revision_id?: string | null;
           model_run_id?: string | null;
           confidence: ResponseConfidence;
@@ -546,6 +561,30 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["memory_revisions"]["Insert"]>;
+        Relationships: [];
+      };
+      memory_conflicts: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          patient_id: string;
+          kind: MemoryConflictKind;
+          status: MemoryConflictStatus;
+          left_revision_id: string;
+          right_revision_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          patient_id: string;
+          kind: MemoryConflictKind;
+          status?: MemoryConflictStatus;
+          left_revision_id: string;
+          right_revision_id: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["memory_conflicts"]["Insert"]>;
         Relationships: [];
       };
       clinic_memberships: {
@@ -792,6 +831,14 @@ export type Database = {
       };
       apply_patient_memory: {
         Args: { p_patient_session_id: string; p_memory_proposals: Json };
+        Returns: undefined;
+      };
+      record_memory_bootstrap_result: {
+        Args: {
+          p_patient_session_id: string;
+          p_succeeded: boolean;
+          p_error_code?: string | null;
+        };
         Returns: undefined;
       };
       queue_escalation: {
