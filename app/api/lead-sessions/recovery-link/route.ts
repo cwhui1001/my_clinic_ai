@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
 
   try {
     await getLeadSessionByRecoveryToken(recoveryToken);
-    const recoveryUrl = new URL("/api/lead-sessions/recover", request.url);
-    recoveryUrl.searchParams.set("token", recoveryToken);
+    const recoveryUrl = new URL("/recover", request.url);
+    recoveryUrl.hash = `token=${encodeURIComponent(recoveryToken)}`;
     return NextResponse.json(
       { recoveryUrl: recoveryUrl.toString() },
       { headers: NO_STORE_HEADERS },

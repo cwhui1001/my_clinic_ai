@@ -231,3 +231,30 @@ export async function markLeadAuthStarted(recoveryToken: string) {
 
   return data;
 }
+
+export type GuestRecoveryState = "active" | "expired" | "purged" | "invalid";
+
+export async function getGuestRecoveryState(recoveryToken: string): Promise<GuestRecoveryState> {
+  const tokenHash = hashGuestToken(recoveryToken);
+  const admin = createAdminClient();
+  const { data: lead, error } = await admin.from("lead_sessions").select("status, expires_at").eq("recovery_token_hash", tokenHash).maybeSingle();
+  if (error) throw new LeadSessionError("Recovery lookup failed.", "database_error");
+  if (lead) {
+    return lead.status === "active" || lead.status === "auth_started"
+      ? new Date(lead.expires_at).getTime() > Date.now() ? "active" : "expired"
+      : "expired";
+  }
+  const { data: tombstone, error: tombstoneError } = await admin.from("lead_recovery_tombstones").select("state").eq("recovery_token_hash", tokenHash).maybeSingle();
+  if (tombstoneError) throw new LeadSessionError("Recovery lookup failed.", "database_error");
+  return tombstone?.state === "purged" ? "purged" : tombstone?.state === "expired" ? "expired" : "invalid";
+}
+
+export async function rotateRecoveredGuestSession(recoveryToken: string) {
+  const state = await getGuestRecoveryState(recoveryToken);
+  if (state !== "active") return { state, session: null, recoveryToken: null } as const;
+  const nextToken = createGuestToken();
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("rotate_lead_recovery_token", { p_current_token_hash: hashGuestToken(recoveryToken), p_new_token_hash: hashGuestToken(nextToken) }).single();
+  if (error || !data) return { state: "invalid" as const, session: null, recoveryToken: null };
+  return { state: "active" as const, session: await toDto(data), recoveryToken: nextToken };
+}
