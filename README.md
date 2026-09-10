@@ -131,6 +131,8 @@ npm run build
 
 The suite covers attribution validation, guest-to-patient conversion contracts, consent, trust copy, redaction, deterministic and model-assisted risk policy, Living Memory mutation/provenance, escalation payload integrity, and RBAC/database contracts. Scenario-named P0 tests live in `tests/scenarios/`.
 
+The explicit 01–21 mapping, execution depth, and honest automation limits are documented in `tests/scenarios/README.md`. Tests that only inspect a SQL/source contract are not treated as hosted execution evidence.
+
 The tests are focused unit and SQL-contract tests. They do not replace hosted-Supabase integration, browser E2E, penetration, clinical-safety, accessibility, or legal review.
 
 ### Final feedback audit status
