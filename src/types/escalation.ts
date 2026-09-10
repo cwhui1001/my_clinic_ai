@@ -1,4 +1,4 @@
-import type { EscalationStatus, Json, MemberRole, RiskLevel, SourceChannel } from "@/src/types/database";
+import type { EscalationStatus, IdentityLevel, Json, MemberRole, RiskLevel, SourceChannel } from "@/src/types/database";
 
 export type PatientEscalationDto = {
   id: string;
@@ -38,6 +38,7 @@ export type ClinicianResponseDto = {
 };
 
 export type EscalationReviewDto = EscalationQueueItemDto & {
+  clinicId: string;
   patientSessionId: string;
   triggerMessageId: string;
   triggerMessage: string;
@@ -76,6 +77,10 @@ export type EscalationReviewDto = EscalationQueueItemDto & {
     creative: string | null;
     landingTimestamp: string;
     landingContext: Json;
+    acquisitionIdentityLevel: IdentityLevel;
+    currentIdentityLevel: IdentityLevel;
+    identityVerified: boolean;
+    authenticationMethod: "email_password" | "phone_otp" | "legacy_unknown";
   };
   provenance: Array<{
     purpose: "trigger" | "summary_support" | "profile_support";

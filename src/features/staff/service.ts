@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getStaffMemberships, StaffAccessError } from "@/src/features/staff/auth";
+import { escalationAttributionSchema, escalationProfileSnapshotSchema, escalationTriageSummarySchema } from "@/src/features/escalation/schema";
 import { decryptProtectedContent, encryptProtectedContent, hashProtectedContent } from "@/src/server/crypto/protected-content";
 import { writeAuditLog } from "@/src/server/logging/audit";
 import { createAdminClient } from "@/src/server/supabase/admin";
@@ -76,15 +77,20 @@ export async function getEscalationReview(escalationId: string): Promise<Escalat
     : { data: [], error: null };
   if (authorError) throw new StaffAccessError("database_error");
   const roleById = new Map((authors ?? []).map((author) => [author.id, author.role]));
-  const attribution = asObject(escalation.attribution_snapshot);
+  const attributionResult = escalationAttributionSchema.safeParse(escalation.attribution_snapshot);
+  const summaryResult = safeParseEncrypted(escalation.triage_summary_ciphertext, escalationTriageSummarySchema);
+  const profileResult = safeParseEncrypted(escalation.profile_snapshot_ciphertext, escalationProfileSnapshotSchema);
+  if (!attributionResult.success || !summaryResult || !profileResult) throw new StaffAccessError("database_error");
+  const attribution = attributionResult.data;
 
   return {
     id: escalation.id,
+    clinicId: escalation.clinic_id,
     clinicName: clinicMembership.clinicName,
     patientReference: escalation.patient_id.slice(0, 8).toUpperCase(),
     riskLevel: riskResult.data.risk_level,
     status: escalation.status,
-    summary: parseArray(decryptProtectedContent(escalation.triage_summary_ciphertext)),
+    summary: summaryResult,
     responseExpectedBy: escalation.response_expected_by,
     sentAt: escalation.sent_at,
     patientSessionId: escalation.patient_session_id,
@@ -92,14 +98,18 @@ export async function getEscalationReview(escalationId: string): Promise<Escalat
     triggerMessage: decryptProtectedContent(triggerResult.data.content_ciphertext),
     riskReason: riskResult.data.risk_reason,
     riskConfidence: riskResult.data.confidence,
-    profileSnapshot: parseProfile(decryptProtectedContent(escalation.profile_snapshot_ciphertext)),
+    profileSnapshot: profileResult,
     attribution: {
-      sourceChannel: String(attribution.source_channel) as EscalationReviewDto["attribution"]["sourceChannel"],
-      socialPlatform: nullableString(attribution.social_platform),
-      campaignId: nullableString(attribution.campaign_id),
-      creative: nullableString(attribution.creative),
-      landingTimestamp: String(attribution.landing_timestamp || ""),
-      landingContext: (attribution.landing_context ?? {}) as EscalationReviewDto["attribution"]["landingContext"],
+      sourceChannel: attribution.source_channel as EscalationReviewDto["attribution"]["sourceChannel"],
+      socialPlatform: attribution.social_platform,
+      campaignId: attribution.campaign_id,
+      creative: attribution.creative,
+      landingTimestamp: attribution.landing_timestamp,
+      landingContext: attribution.landing_context,
+      acquisitionIdentityLevel: attribution.acquisition_identity_level,
+      currentIdentityLevel: attribution.current_identity_level,
+      identityVerified: attribution.identity_verified,
+      authenticationMethod: attribution.authentication_method,
     },
     provenance: (provenanceResult.data ?? []).map((row) => ({
       purpose: row.purpose,
@@ -162,21 +172,11 @@ function parseArray(value: string) {
   }
 }
 
-function parseProfile(value: string): EscalationReviewDto["profileSnapshot"] {
+function safeParseEncrypted<T>(ciphertext: string, schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }): T | null {
   try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is EscalationReviewDto["profileSnapshot"][number] =>
-      item && typeof item === "object" && typeof item.revisionId === "string" && typeof item.value === "string");
+    const result = schema.safeParse(JSON.parse(decryptProtectedContent(ciphertext)));
+    return result.success ? result.data : null;
   } catch {
-    return [];
+    return null;
   }
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function nullableString(value: unknown) {
-  return typeof value === "string" ? value : null;
 }

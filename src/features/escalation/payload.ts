@@ -1,5 +1,6 @@
 import type { MemoryItemDto } from "@/src/types/memory";
 import type { PatientRiskDto } from "@/src/types/patient-chat";
+import { escalationProfileSnapshotSchema, escalationTriageSummarySchema } from "./schema";
 
 export function buildEscalationPayload(input: {
   triggerMessageId: string;
@@ -59,8 +60,8 @@ export function buildEscalationPayload(input: {
   ]))];
 
   return {
-    triageSummary,
-    profileSnapshot,
+    triageSummary: escalationTriageSummarySchema.parse(triageSummary),
+    profileSnapshot: escalationProfileSnapshotSchema.parse(profileSnapshot),
     provenance: [
       { message_id: input.triggerMessageId, memory_revision_id: null, purpose: "trigger" },
       ...profileRevisionIds.map((revisionId) => ({
