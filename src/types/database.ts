@@ -119,6 +119,8 @@ export type Database = {
           landing_context: Json;
           context_ciphertext: string | null;
           social_handle_ciphertext: string | null;
+          phone_ciphertext: string | null;
+          phone_hash: string | null;
           recovery_token_hash: string | null;
           request_fingerprint_hash: string;
           expires_at: string;
@@ -142,6 +144,8 @@ export type Database = {
           landing_context?: Json;
           context_ciphertext?: string | null;
           social_handle_ciphertext?: string | null;
+          phone_ciphertext?: string | null;
+          phone_hash?: string | null;
           recovery_token_hash?: string | null;
           request_fingerprint_hash: string;
           expires_at: string;
@@ -363,6 +367,10 @@ export type Database = {
           clinic_id: string;
           patient_id: string;
           origin_lead_session_id: string;
+          acquisition_identity_level: IdentityLevel;
+          current_identity_level: IdentityLevel;
+          authentication_method: "email_password" | "phone_otp" | "legacy_unknown";
+          identity_verified: boolean;
           status: PatientSessionStatus;
           memory_bootstrap_status: MemoryBootstrapStatus;
           memory_bootstrap_attempts: number;
@@ -377,6 +385,10 @@ export type Database = {
           clinic_id: string;
           patient_id: string;
           origin_lead_session_id: string;
+          acquisition_identity_level: IdentityLevel;
+          current_identity_level?: IdentityLevel;
+          authentication_method: "email_password" | "phone_otp" | "legacy_unknown";
+          identity_verified?: boolean;
           status?: PatientSessionStatus;
           memory_bootstrap_status?: MemoryBootstrapStatus;
           memory_bootstrap_attempts?: number;
@@ -720,6 +732,13 @@ export type Database = {
         };
         Returns: Database["public"]["Tables"]["lead_sessions"]["Row"][];
       };
+      create_lead_session_v2: {
+        Args: Database["public"]["Functions"]["create_lead_session"]["Args"] & {
+          p_phone_ciphertext: string | null;
+          p_phone_hash: string | null;
+        };
+        Returns: Database["public"]["Tables"]["lead_sessions"]["Row"][];
+      };
       append_guest_message: {
         Args: {
           p_recovery_token_hash: string;
@@ -775,6 +794,34 @@ export type Database = {
           p_notice_version: string;
         };
         Returns: string;
+      };
+      convert_lead_to_patient_v2: {
+        Args: {
+          p_recovery_token_hash: string;
+          p_phone_ciphertext: string;
+          p_phone_hash: string;
+          p_consent_granted: boolean;
+          p_policy_version: string;
+          p_notice_version: string;
+          p_marketing_consent: boolean;
+          p_marketing_policy_version: string;
+          p_marketing_notice_version: string;
+        };
+        Returns: string;
+      };
+      record_marketing_email_consent: {
+        Args: {
+          p_patient_session_id: string;
+          p_action: ConsentAction;
+          p_policy_version: string;
+          p_notice_version: string;
+          p_idempotency_key: string;
+        };
+        Returns: string;
+      };
+      has_current_marketing_email_consent: {
+        Args: { p_patient_session_id: string };
+        Returns: boolean;
       };
       append_patient_message: {
         Args: {
