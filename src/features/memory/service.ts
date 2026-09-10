@@ -7,6 +7,7 @@ import {
   hashProtectedContent,
 } from "@/src/server/crypto/protected-content";
 import { createAdminClient } from "@/src/server/supabase/admin";
+import { createSupabaseServerClient } from "@/src/server/supabase/server";
 import type { Json } from "@/src/types/database";
 import type { Database } from "@/src/types/database";
 import type { MemoryCurrentFact, MemoryItemDto, MemoryProposal } from "@/src/types/memory";
@@ -14,15 +15,17 @@ import type { MemoryCurrentFact, MemoryItemDto, MemoryProposal } from "@/src/typ
 type MemoryRevisionRow = Database["public"]["Tables"]["memory_revisions"]["Row"];
 
 export async function loadMemoryProfileForSession(patientSessionId: string): Promise<MemoryItemDto[]> {
-  const admin = createAdminClient();
-  const { data: session, error: sessionError } = await admin
+  // Patient/staff identity and clinic access are enforced by Supabase RLS. Do
+  // not use the service-role client for this user-facing read path.
+  const supabase = await createSupabaseServerClient();
+  const { data: session, error: sessionError } = await supabase
     .from("patient_sessions")
     .select("patient_id")
     .eq("id", patientSessionId)
     .single();
   if (sessionError || !session) throw new Error("memory_session_unavailable");
 
-  const { data: items, error: itemError } = await admin
+  const { data: items, error: itemError } = await supabase
     .from("memory_items")
     .select("*")
     .eq("patient_id", session.patient_id)
@@ -31,7 +34,7 @@ export async function loadMemoryProfileForSession(patientSessionId: string): Pro
 
   const itemIds = (items ?? []).map((item) => item.id);
   const { data: revisions, error: revisionError } = itemIds.length
-    ? await admin.from("memory_revisions").select("*").in("memory_item_id", itemIds).order("created_at", { ascending: false })
+    ? await supabase.from("memory_revisions").select("*").in("memory_item_id", itemIds).order("created_at", { ascending: false })
     : { data: [], error: null };
   if (revisionError) throw new Error("memory_profile_unavailable");
 
