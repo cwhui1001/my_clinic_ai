@@ -11,10 +11,10 @@ const serverEnvSchema = z.object({
   RATE_LIMIT_HMAC_KEY: z.string().min(32),
 });
 
-const openAIEnvSchema = z.object({
-  OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL: z.string().min(1).default("gpt-5.4-mini"),
-  OPENAI_REQUEST_TIMEOUT_MS: z.coerce
+const openRouterEnvSchema = z.object({
+  OPENROUTER_API_KEY: z.string().min(1),
+  OPENROUTER_MODEL: z.string().min(1).default("openai/gpt-5.4-mini"),
+  OPENROUTER_REQUEST_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(1000)
@@ -47,11 +47,11 @@ export function getServerEnv() {
   return env;
 }
 
-export function getOpenAIEnv() {
-  return openAIEnvSchema.parse({
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    OPENAI_MODEL: process.env.OPENAI_MODEL,
-    OPENAI_REQUEST_TIMEOUT_MS: process.env.OPENAI_REQUEST_TIMEOUT_MS,
+export function getOpenRouterEnv() {
+  return openRouterEnvSchema.parse({
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
+    OPENROUTER_REQUEST_TIMEOUT_MS: process.env.OPENROUTER_REQUEST_TIMEOUT_MS,
   });
 }
 

@@ -97,8 +97,8 @@ export async function createPatientTurn(
   const redactionStatus: RedactionStatus = pipeline.redaction ? "passed" : "failed";
   const isModelFailure = pipeline.risk.source === "fallback" && pipeline.errorCode !== "redaction_failed";
   const modelStatus: ModelRunStatus = pipeline.model ? "completed" : isModelFailure ? "failed" : "skipped";
-  const provider = pipeline.model || isModelFailure ? "openai" : "local";
-  const model = pipeline.model?.model ?? (isModelFailure ? process.env.OPENAI_MODEL || "unconfigured" : "deterministic-risk-gate");
+  const provider = pipeline.model || isModelFailure ? "openrouter" : "local";
+  const model = pipeline.model?.model ?? (isModelFailure ? process.env.OPENROUTER_MODEL || "unconfigured" : "deterministic-risk-gate");
   const redactedInputHash = hashProtectedContent(pipeline.redaction?.text ?? "[REDACTION_FAILED]");
   const assessedAt = new Date().toISOString();
 

@@ -212,8 +212,8 @@ export async function createGuestTurn(
   let redactionSummary: Json = {};
   let redactedInputHash = hashProtectedContent("[REDACTION_FAILED]");
   let modelStatus: ModelRunStatus = answer ? "skipped" : "completed";
-  let provider = answer ? "local" : "openai";
-  let model = answer ? "deterministic" : process.env.OPENAI_MODEL || "unconfigured";
+  let provider = answer ? "local" : "openrouter";
+  let model = answer ? "deterministic" : process.env.OPENROUTER_MODEL || "unconfigured";
   let providerResponseId: string | null = null;
   let durationMs = 0;
   let errorCode: string | null = null;

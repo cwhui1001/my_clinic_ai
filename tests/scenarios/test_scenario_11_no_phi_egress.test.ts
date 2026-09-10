@@ -24,7 +24,12 @@ describe("test_scenario_11_no_phi_egress", () => {
       const source = readFileSync(resolve(`src/server/openai/${file}`), "utf8");
       expect(source).toContain("redactedMessage");
       expect(source).toContain("store: false");
+      expect(source).toContain("https://openrouter.ai/api/v1/responses");
+      expect(source).toContain('data_collection: "deny"');
+      expect(source).toContain("zdr: true");
       expect(source).toContain("fetchWithProviderTimeout");
+      expect(source).not.toContain("https://api.openai.com");
+      expect(source).not.toContain("OPENAI_API_KEY");
       expect(source).not.toMatch(/response\.text\(\)/);
     }
   });

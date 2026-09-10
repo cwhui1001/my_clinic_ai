@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { getOpenAIEnv } from "@/src/config/server-env";
+import { getOpenRouterEnv } from "@/src/config/server-env";
 import { fetchWithProviderTimeout, ProviderRequestTimeoutError } from "@/src/server/openai/provider-timeout";
 import type { GuestIntent } from "@/src/features/guest-chat/policy";
 
@@ -13,7 +13,7 @@ type ClinicPublicProfile = {
   generalNote: string;
 };
 
-type OpenAIResponsePayload = {
+type OpenRouterResponsePayload = {
   id?: string;
   output_text?: string;
   output?: Array<{
@@ -28,7 +28,7 @@ export class GuestModelError extends Error {
   }
 }
 
-function extractOutputText(payload: OpenAIResponsePayload) {
+function extractOutputText(payload: OpenRouterResponsePayload) {
   if (payload.output_text) return payload.output_text;
 
   for (const item of payload.output ?? []) {
@@ -47,9 +47,9 @@ export async function createGuestModelReply(input: {
   clinicProfile: ClinicPublicProfile;
   safetyIdentifier: string;
 }) {
-  let env: ReturnType<typeof getOpenAIEnv>;
+  let env: ReturnType<typeof getOpenRouterEnv>;
   try {
-    env = getOpenAIEnv();
+    env = getOpenRouterEnv();
   } catch {
     throw new GuestModelError("configuration");
   }
@@ -62,15 +62,21 @@ export async function createGuestModelReply(input: {
   const startedAt = Date.now();
 
   try {
-    const response = await fetchWithProviderTimeout("https://api.openai.com/v1/responses", {
+    const response = await fetchWithProviderTimeout("https://openrouter.ai/api/v1/responses", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
+        "X-OpenRouter-Title": "Nightingale",
       },
       body: JSON.stringify({
-        model: env.OPENAI_MODEL,
+        model: env.OPENROUTER_MODEL,
         store: false,
+        provider: {
+          require_parameters: true,
+          data_collection: "deny",
+          zdr: true,
+        },
         safety_identifier: input.safetyIdentifier,
         max_output_tokens: 350,
         instructions: [
@@ -120,11 +126,11 @@ export async function createGuestModelReply(input: {
           },
         },
       }),
-    }, env.OPENAI_REQUEST_TIMEOUT_MS);
+    }, env.OPENROUTER_REQUEST_TIMEOUT_MS);
 
     if (!response.ok) throw new GuestModelError("provider");
 
-    const payload = (await response.json()) as OpenAIResponsePayload;
+    const payload = (await response.json()) as OpenRouterResponsePayload;
     const outputText = extractOutputText(payload);
     if (!outputText) throw new GuestModelError("invalid_output");
 
@@ -139,7 +145,7 @@ export async function createGuestModelReply(input: {
 
     return {
       answer: parsed.data.answer,
-      model: env.OPENAI_MODEL,
+      model: env.OPENROUTER_MODEL,
       providerResponseId: payload.id ?? null,
       durationMs: Date.now() - startedAt,
     };

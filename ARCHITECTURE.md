@@ -3,18 +3,18 @@
 Status: Implemented MVP architecture, adversarially audited 11 September 2026
 
 Primary sources: `2026 48 Hour Build_ Nightingale Candidate Brief.pdf`, `48HR Feedback_ Nightingale Candidate Brief.pdf`, `REQUIREMENTS.md`, and `docs/FEEDBACK_GAP_ANALYSIS.md`
-Target stack: Next.js 16 + TypeScript, Tailwind CSS, Supabase PostgreSQL, Supabase Auth, OpenAI API
+Target stack: Next.js 16 + TypeScript, Tailwind CSS, Supabase PostgreSQL, Supabase Auth, OpenRouter API
 
 ## 1. Goals and architectural decisions
 
-The MVP is one deployable Next.js application backed by one Supabase project. It is intentionally a modular monolith: UI, HTTP endpoints, orchestration, and the server-only data-access layer live in one repository. PostgreSQL remains the durable source of truth. OpenAI is a stateless processor, not the conversation database.
+The MVP is one deployable Next.js application backed by one Supabase project. It is intentionally a modular monolith: UI, HTTP endpoints, orchestration, and the server-only data-access layer live in one repository. PostgreSQL remains the durable source of truth. OpenRouter and the routed model provider are stateless processors, not the conversation database.
 
 Primary design goals:
 
 1. Preserve acquisition, message, memory, consent, risk, and escalation provenance end to end.
-2. Prevent PHI from reaching OpenAI or operational logs.
+2. Prevent PHI from reaching OpenRouter, routed model providers, or operational logs.
 3. Enforce authorization close to the data with PostgreSQL RLS, with matching checks in the Next.js server layer.
-4. Make high-risk behavior deterministic and fail safe even when OpenAI is unavailable.
+4. Make high-risk behavior deterministic and fail safe even when the model provider is unavailable.
 5. Minimize moving parts so the core flows and required tests fit within 48 hours.
 
 ### MVP decisions
@@ -26,7 +26,7 @@ Primary design goals:
 | Data access | `server-only` feature services own clinical queries and DTO construction | Keeps database access out of Client Components; RLS and narrow RPCs remain the primary authorization boundary. |
 | Browser database access | Browser uses Supabase for Auth only; clinical and guest data go through the Next.js server | Easier to audit and prevents broad client access to sensitive records. RLS still protects database access. |
 | Messaging | One `messages` table supports guest and patient sessions | Original guest messages do not need to be copied, so provenance stays intact. |
-| AI state | Stateless OpenAI Responses API calls with `store: false`; application supplies minimum redacted context | Supabase remains the source of truth and external persistence is minimized. |
+| AI state | Stateless OpenRouter Responses API calls with ZDR/data-policy routing and `store: false`; application supplies minimum redacted context | Supabase remains the source of truth and external persistence is minimized. |
 | AI output | Structured output validated by the server | Risk, response, memory proposals, and citations require predictable fields. |
 | Risk | Deterministic safety rules first, then structured model assessment, then a server policy gate | Mandatory emergency phrases cannot depend only on model behavior. |
 | Memory | Current fact identity plus append-only fact revisions | Corrections update the live profile without destroying prior provenance. |
@@ -57,7 +57,7 @@ Next.js 16 application
 │   ├── Acquisition and channel rules
 │   ├── PHI redaction
 │   ├── Risk gate
-│   ├── OpenAI orchestration
+│   ├── OpenRouter orchestration
 │   ├── Living Memory mutation
 │   ├── Conversion
 │   ├── Escalation
@@ -65,7 +65,7 @@ Next.js 16 application
 └── Server-only DAL and minimal DTOs
         │                       │
         ▼                       ▼
-Supabase Auth/PostgreSQL     OpenAI Responses API
+Supabase Auth/PostgreSQL     OpenRouter Responses API
 ├── RLS and grants           ├── Redacted minimum input only
 ├── Atomic conversion RPC    ├── Structured output
 ├── Encrypted clinical data  └── No application conversation state
@@ -78,7 +78,7 @@ Supabase Auth/PostgreSQL     OpenAI Responses API
 - Interactive clients call Route Handlers for chat turns, conversion, escalation, referral creation, and simulated acquisition/webhooks.
 - Every Route Handler is treated as public: validate content type, body size, shape, session, role, clinic membership, and resource ownership.
 - `proxy.ts` may refresh Supabase Auth cookies and perform optimistic redirects. It is not an authorization boundary.
-- The OpenAI key, Supabase secret key, encryption key, and unredacted content are server-only.
+- The OpenRouter key, Supabase secret key, encryption key, and unredacted content are server-only.
 - API responses return explicit DTOs rather than raw table rows.
 
 ### UI route groups
@@ -498,7 +498,7 @@ For personal/referral links, the URL token is single-purpose. Exchange it for th
 1. Receive and validate a guest or patient turn.
 2. Persist protected content with `received`/`processing` state.
 3. Run local redaction and risk checks.
-4. Call OpenAI only when the redaction gate passes and deterministic emergency handling permits it.
+4. Call OpenRouter only when the redaction gate passes and deterministic emergency handling permits it.
 5. Persist risk before making an assistant response visible.
 6. Validate the proposed assistant response and citations.
 7. Persist assistant message, citations, memory changes, and any escalation transition atomically where possible.
@@ -635,7 +635,7 @@ The source brief does not distinguish Staff, Nurse, and Clinician permissions pr
 
 ## 12. PHI redaction pipeline
 
-Redaction happens locally in the Next.js server before any OpenAI request. There is no transactional-email transport in this MVP.
+Redaction happens locally in the Next.js server before any OpenRouter request. There is no transactional-email transport in this MVP.
 
 ```text
 Inbound text
@@ -646,7 +646,7 @@ Inbound text
   → replace matches with [REDACTED]
   → leak scan and redaction assertion
   → minimum-context builder
-  → OpenAI request with store=false
+  → OpenRouter request with ZDR/data-policy routing and store=false
   → max(rule risk, model risk) and output safety gate
   → encrypt/seal raw application record and persist structured result
 ```
@@ -665,14 +665,14 @@ The replacement token is consistently `[REDACTED]` so the required test is unamb
 - Raw input may exist only in protected clinical/application records, never in `audit_events`, funnel metadata, console logs, traces, URLs, analytics, or exception messages.
 - Operational records store redaction status/version, category counts, input hash, duration, and error code only.
 - Redacted model context is minimized to the current turn, necessary recent turns, current fact projection, and approved knowledge excerpts.
-- OpenAI response/conversation state is not used as the clinical record.
+- OpenRouter response/conversation state is not used as the clinical record.
 - No earned-email promise or sender exists; the UI does not report email delivery.
 
 ### Failure behavior
 
 Recommended MVP decision: fail closed. If the redactor throws, returns an invalid result, or the leak assertion fails:
 
-- Do not call OpenAI.
+- Do not call OpenRouter.
 - Do not call any external notification or model provider with the unsafe text.
 - Mark the message `blocked` with a PHI-free error code.
 - Show a safe message explaining that automated processing is temporarily unavailable and offer the clinic handoff.
@@ -680,10 +680,10 @@ Recommended MVP decision: fail closed. If the redactor throws, returns an invali
 
 The source documents require the failure mode to be documented but do not explicitly mandate fail-closed behavior; this is a production-safety decision.
 
-### OpenAI boundary
+### OpenRouter boundary
 
 - Use a server-side Responses API request with a model selected by environment configuration.
-- Set `store: false` and manage context in Supabase.
+- Require parameter support, deny data-collecting routes, request Zero Data Retention, set `store: false`, and manage context in Supabase.
 - Request structured output and validate it before use.
 - Use a stable hashed safety identifier rather than an email, phone number, or patient ID that is meaningful outside this system.
 - Do not enable live web search or upload files in the MVP patient pipeline.
@@ -698,7 +698,7 @@ Patient message
   → normalize locally
   → deterministic emergency phrase/variant gate
   → PHI-redact
-  → structured OpenAI assessment + draft + memory proposals
+  → structured OpenRouter assessment + draft + memory proposals
   → schema validation
   → conservative server policy
   → persist risk assessment
@@ -737,9 +737,9 @@ The model proposes:
 
 | Failure | Patient behavior | Persistence |
 |---|---|---|
-| OpenAI timeout/error | Honest temporary-unavailability response; no clinical advice; offer clinic handoff | Failed `model_run`, conservative risk/escalation state, PHI-free audit event |
+| OpenRouter timeout/error | Honest temporary-unavailability response; no clinical advice; offer clinic handoff | Failed `model_run`, conservative risk/escalation state, PHI-free audit event |
 | Invalid model schema | Same as timeout | Validation error code only |
-| Redaction failure | Do not call OpenAI; offer clinic handoff | Blocked message processing state and PHI-free event |
+| Redaction failure | Do not call OpenRouter; offer clinic handoff | Blocked message processing state and PHI-free event |
 | Auth unavailable | Do not expose protected data or accept patient mutation; preserve guest recovery where safely possible | PHI-free availability event |
 | Database transaction failure | Return retry-safe error; do not display uncommitted response | Idempotency key allows safe retry |
 
@@ -871,7 +871,7 @@ Folder rules:
 - `features/*` contains domain types, schemas, and orchestration grouped by requirement area.
 - `src/features/**/service.ts` modules are `server-only` and own queries, resource authorization, and DTO construction.
 - `server/openai`, `server/crypto`, and privileged Supabase clients are `server-only`.
-- Client Components never import database rows, OpenAI types containing internals, secrets, or protected domain entities.
+- Client Components never import database rows, provider types containing internals, secrets, or protected domain entities.
 - Configurable channel and risk rules live in one declarative location, not UI/handler conditionals.
 
 ## 16. Production-credibility boundaries for the 48-hour MVP
@@ -945,4 +945,4 @@ The final audit deliberately leaves these boundaries open:
 
 The authoritative final 21-scenario statuses, test evidence, and remaining weaknesses are in `docs/FEEDBACK_GAP_ANALYSIS.md` under “Final Adversarial Audit — 11 September 2026.”
 - Supabase RLS combines table grants with policies; both must be configured. Secret/service credentials bypass RLS and must never reach the browser.
-- OpenAI's Responses API supports stateless operation with `store: false` and structured output. Application state and abuse-monitoring retention are separate concerns; the MVP sends redacted synthetic content only and does not claim that `store: false` alone establishes healthcare compliance.
+- OpenRouter's Responses API supports stateless operation with structured output. The application requests ZDR-only, non-data-collecting routes and sends redacted synthetic content, but provider routing and contractual controls still require deployment review; these flags alone do not establish healthcare compliance.
