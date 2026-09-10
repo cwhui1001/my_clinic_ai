@@ -15,3 +15,11 @@ export const authCredentialsSchema = z
 export const signupCredentialsSchema = authCredentialsSchema.extend({
   phone: z.string().trim().min(8).max(30),
 });
+
+export const phoneOtpStartSchema = z.object({
+  phone: z.string().trim().min(8).max(30).regex(/^\+?[0-9\s().-]+$/),
+}).strict();
+
+export const phoneOtpVerifySchema = phoneOtpStartSchema.extend({
+  token: z.string().trim().regex(/^\d{6}$/),
+});

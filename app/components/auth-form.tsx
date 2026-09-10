@@ -119,6 +119,11 @@ export function AuthForm({
         </button>
       </form>
 
+      <div className="mt-5 border-t border-slate-200 pt-5">
+        <Link className="secondary-button inline-flex" href="/auth/phone">Continue with verified phone instead</Link>
+        <p className="mt-2 text-xs leading-5 text-slate-500">Useful when you arrived from social media and do not have email. A social handle preserves origin context but is never treated as authentication.</p>
+      </div>
+
       <p className="mt-6 text-xs leading-5 text-slate-500">
         Your guest conversation remains private until email verification and explicit consent are complete. <Link className="font-semibold text-teal-700 underline" href="/guest">Return to guest chat</Link>
       </p>

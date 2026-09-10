@@ -64,6 +64,7 @@ export function LeadSessionStarter({ defaults }: Props) {
             source === "social_comment"
               ? String(formData.get("socialHandle") || "")
               : undefined,
+          phone: source === "social_comment" ? String(formData.get("phone") || "") || undefined : undefined,
           campaignId: String(formData.get("campaignId") || "") || undefined,
           creative: String(formData.get("creative") || "") || undefined,
           pagePath: defaults.pagePath,
@@ -104,7 +105,7 @@ export function LeadSessionStarter({ defaults }: Props) {
       </label>
 
       {source === "social_comment" ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <label className="block">
             <span className="field-label">Social platform</span>
             <select
@@ -128,6 +129,11 @@ export function LeadSessionStarter({ defaults }: Props) {
               maxLength={160}
               required
             />
+          </label>
+          <label className="block">
+            <span className="field-label">Phone (optional)</span>
+            <input className="field-control" name="phone" type="tel" autoComplete="tel" placeholder="+60 12 345 6789" maxLength={30} />
+            <span className="mt-1 block text-xs text-slate-500">Encrypted; never copied into escalation attribution.</span>
           </label>
         </div>
       ) : null}

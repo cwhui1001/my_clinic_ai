@@ -22,6 +22,7 @@ export const acquisitionRequestSchema = z
     ]),
     socialPlatform: z.enum(["instagram", "tiktok", "facebook"]).optional(),
     socialHandle: z.string().trim().min(1).max(160).optional(),
+    phone: z.string().trim().min(8).max(30).regex(/^\+?(?:[0-9][\s().-]*){8,15}$/).optional(),
     campaignId: z.string().trim().max(160).optional(),
     creative: z.string().trim().max(160).optional(),
     pagePath: z.string().trim().max(500).optional(),

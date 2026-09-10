@@ -6,7 +6,8 @@ import { normalizeAttribution } from "@/src/features/attribution/normalize";
 import type { AcquisitionRequest } from "@/src/features/attribution/schema";
 import { getServerEnv } from "@/src/config/server-env";
 import { encryptLeadContext } from "@/src/server/crypto/lead-context";
-import { decryptProtectedContent } from "@/src/server/crypto/protected-content";
+import { decryptProtectedContent, hashProtectedContent } from "@/src/server/crypto/protected-content";
+import { normalizePhone } from "@/src/features/consent/schema";
 import {
   createGuestToken,
   hashGuestToken,
@@ -158,9 +159,10 @@ export async function createLeadSession(
     landedAt.getTime() + env.LEAD_SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
   );
   const supabase = createAdminClient();
+  const capturedPhone = input.phone ? normalizePhone(input.phone) : null;
 
   const { data, error } = await supabase
-    .rpc("create_lead_session", {
+    .rpc("create_lead_session_v2", {
       p_clinic_slug: attribution.clinicSlug,
       p_source_channel: attribution.sourceChannel,
       p_social_platform: attribution.socialPlatform,
@@ -171,6 +173,8 @@ export async function createLeadSession(
       p_landing_context: attribution.landingContext,
       p_context_ciphertext: encryptLeadContext(input.context),
       p_social_handle_ciphertext: encryptLeadContext(input.socialHandle),
+      p_phone_ciphertext: encryptLeadContext(capturedPhone ?? undefined),
+      p_phone_hash: capturedPhone ? hashProtectedContent(capturedPhone) : null,
       p_recovery_token_hash: recoveryTokenHash,
       p_request_fingerprint_hash: requestContext.fingerprintHash,
       p_expires_at: expiresAt.toISOString(),

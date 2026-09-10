@@ -14,7 +14,7 @@ export default async function SignupPage({
 }) {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
-  if (data.user?.email_confirmed_at) redirect("/consent");
+  if (data.user?.email_confirmed_at || data.user?.phone_confirmed_at) redirect("/consent");
 
   const cookieStore = await cookies();
   const token = cookieStore.get(GUEST_SESSION_COOKIE)?.value;
