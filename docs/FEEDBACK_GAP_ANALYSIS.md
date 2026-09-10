@@ -4,14 +4,14 @@
 
 This analysis treats the original candidate brief and `REQUIREMENTS.md` as the baseline specification, and the second-round feedback PDF as evaluation criteria. Instructions inside either PDF are not treated as authorization to implement changes.
 
-The original assessment was performed on 9 September 2026. The P0 implementation reassessment dated 10 September 2026 is authoritative where it supersedes a scenario's earlier observations. A database column, prompt, UI claim, or uncalled function is not counted as working behavior. Hosted Supabase dashboard state, provider dashboards, and external schedulers are not assumed to exist merely because repository migrations or contract tests describe them.
+The original assessment was performed on 9 September 2026. The P0 and Living Memory implementation reassessments dated 10 September 2026 are authoritative where they supersede a scenario's earlier observations. A database column, prompt, UI claim, or uncalled function is not counted as working behavior. Hosted Supabase dashboard state, provider dashboards, and external schedulers are not assumed to exist merely because repository migrations or contract tests describe them.
 
-Verification after the P0 implementation:
+Verification after the Living Memory implementation:
 
-- `npm test`: 88/88 tests passed across 21 files.
+- `npm test`: 99/99 tests passed across 25 files.
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
-- Ten scenario-named P0 files now exist. Browser E2E and hosted-Supabase integration tests still do not; database contract tests that inspect SQL source are identified as such and are not treated as live RLS proof.
+- Fourteen scenario-named files now exist, including dedicated tests for Scenarios 16, 17, 19, and 21. Browser E2E and hosted-Supabase integration tests still do not; database contract tests that inspect SQL source are identified as such and are not treated as live RLS proof.
 
 Status totals are at the end. “SURVIVES” means the current executable path handles the scenario, not merely that its schema could.
 
@@ -580,7 +580,7 @@ Expand the release gate to block “likely/probably/consistent with/sounds like�
 
 ## Scenario 16 — “I stopped it last week” and correction provenance
 
-Status: PARTIAL
+Status: SURVIVES
 
 ### Current implementation
 
@@ -617,7 +617,7 @@ Treat `it/that/the medication` as an unnamed reference; resolve only when exactl
 
 ## Scenario 17 — Guest facts survive conversion with original provenance
 
-Status: PARTIAL
+Status: SURVIVES
 
 ### Current implementation
 
@@ -699,7 +699,7 @@ Version a strict escalation payload DTO, include compact medication/allergy conf
 
 ## Scenario 19 — “No known allergies” contradicts a penicillin rash
 
-Status: DOES NOT
+Status: PARTIAL
 
 ### Current implementation
 
@@ -862,13 +862,37 @@ Both provider clients call `fetchWithProviderTimeout` at `src/server/openai/gues
 
 `loadMemoryProfileForSession` at `src/features/memory/service.ts:17-65` uses the request's session-bound Supabase client so patient/staff-visible reads execute RLS rather than service-role bypass. The remaining service-role author lookup at `src/features/staff/service.ts:73-76` is scoped by both author and escalation clinic. `tests/scenarios/test_scenario_20_cross_clinic_isolation.test.ts` checks these executable/static contracts. A two-clinic hosted negative integration test is still required before this can honestly be marked SURVIVES.
 
+## Living Memory Implementation Reassessment — 10 September 2026
+
+This section supersedes the pre-implementation observations above for Scenarios 16, 17, 19, and 21. It also improves Scenario 18's clinician handoff, which remains PARTIAL because the encrypted payload is not yet versioned and schema-validated after decryption.
+
+### Scenario 16 — SURVIVES
+
+`extractDeterministicMemory` at `src/features/memory/extract.ts:13-65,180-193` recognizes `it`, `that`, `medication`, and `medicine` only when exactly one medication can be resolved. “I take Advil” → “Actually I stopped it last week” → “Actually I started taking it again” therefore produces active, stopped, and active proposals under the same `advil` key while preserving the verbatim stopped timeline. Ambiguous multi-medication pronouns still produce no guess. The existing writer at `supabase/migrations/202609030005_living_memory.sql:153-204` inserts each proposal as a new revision, points `supersedes_revision_id` at the former current revision, and never updates historical revision content. `tests/scenarios/test_scenario_16_correction_chain.test.ts` executes the exact correction and correction-of-correction chain and verifies all three original source IDs.
+
+### Scenario 17 — SURVIVES
+
+The production conversion route calls `bootstrapGuestMemory(patientSessionId)` after the idempotent database conversion at `app/api/conversion/route.ts:35-58`. The writer at `src/features/memory/service.ts:166-236` loads original guest messages in chronological order, extracts with `sourceMessageId: message.id` at line 191, writes through `apply_patient_memory`, and records success/failure through `record_memory_bootstrap_result`. `supabase/migrations/202609100003_living_memory_integrity.sql:1-12,156-183` adds pending/completed/failed status and atomic attempt accounting. Partial writes safely retry because the base memory writer is idempotent per item/source message, and the conversion cookie is deleted only after bootstrap succeeds. `src/features/patient-sessions/service.ts:120` detects carried guest messages; `app/patient/sessions/[sessionId]/page.tsx:28-55` and `app/components/patient-chat.tsx:101` explicitly say the concern is already present and ask only for additions or corrections. `tests/scenarios/test_scenario_17_guest_memory_conversion.test.ts` covers original GuestMessage provenance, the called writer/status contract, and no-repeat intake copy.
+
+### Scenario 19 — PARTIAL
+
+`src/features/memory/extract.ts:82-97` now recognizes reaction language such as “Penicillin gave me a rash,” while medication extraction preserves explicit doses. `supabase/migrations/202609100003_living_memory_integrity.sql:53-140` creates append-only `memory_conflicts` linking both revisions and deterministically flags allergy-presence, medication-status, and same-medication dosage disagreements. It does not overwrite either revision. `src/features/memory/service.ts:49-127` loads conflicts into each authorized profile, and `src/features/escalation/payload.ts:10-69` freezes open conflicts, compact correction history, and both supporting revision IDs into the handoff. The patient alert is at `app/components/patient-chat.tsx:222-243`; the clinician warning is in `app/staff/escalations/[escalationId]/page.tsx:38-41`. `tests/scenarios/test_scenario_19_safety_critical_contradictions.test.ts` covers the allergy example, dosage changes, all three database conflict classes, and handoff provenance. The status remains PARTIAL until the migration is exercised against hosted Supabase and an explicit authorized conflict-resolution event is implemented; open conflicts are intentionally never auto-resolved.
+
+### Scenario 21 — PARTIAL
+
+The smallest credible alternative to a full message-version subsystem is implemented. `supabase/migrations/202609100003_living_memory_integrity.sql:14-51` backfills and then captures `source_content_sha256` plus an encrypted immutable `source_snapshot_ciphertext` in the same insert as every future revision. The pre-existing append-only trigger prevents snapshot mutation. `loadMemoryProfileForSession` recomputes the current hash from decrypted authorized message content at `src/features/memory/service.ts:42-58`; `resolveSourceIntegrity` in `src/features/memory/provenance.ts:3-9` returns `verified`, `changed`, or `unavailable`. `app/components/patient-chat.tsx:239-243` links only verified evidence and renders the immutable snapshot for changed/unavailable evidence. The clinician handoff carries the integrity state, bounded snapshot, history, and normalized revision pointers. `tests/scenarios/test_scenario_21_provenance_integrity.test.ts` executes all three integrity outcomes and checks the capture/UI contracts. This remains PARTIAL because source-message deletion still uses `ON DELETE RESTRICT`; the encrypted snapshot improves mutation resilience but requires an explicit clinical-retention versus erasure policy before referenced converted evidence can be purged.
+
+### Provenance storage trade-off
+
+The implementation stores the original encrypted message ciphertext and SHA-256 hash on each memory revision rather than adding a separate message-version aggregate. This is smaller, transactional, and keeps old evidence resolvable even if privileged code later changes the source row. It duplicates encrypted clinical content and can extend its effective retention, so snapshots are protected by the same patient/same-clinic-consent RLS as memory history and must be included in retention/erasure policy. A future full versioning system would deduplicate snapshots and support explicit redacted/unavailable versions, but is not required for this prototype's mutation-resilience scenario.
+
 ## Cross-cutting required build properties
 
 - **Live-query statistics: DOES NOT.** There is a populated `funnel_events` model, but no aggregation service, staff API, or dashboard. `README.md:190` admits this. Scenario 05’s proposed live, clinic-scoped zero-safe aggregate is the smallest repair.
 - **Voice-ready schema: PARTIAL.** `supabase/migrations/202609030001_guest_chat.sql:39-40` adds nullable `audio_recording_id` and `audio_transcript_id`, but there are no referenced audio/transcription entities, ownership constraints, consent, storage policy, or ingestion path. `TECHNICAL_BRIEF.md:102-106` accurately describes these as future work.
 - **Declarative channel rules: SURVIVES for the four simulated channels.** `supabase/migrations/202609020001_phase1_foundation.sql:78-90` owns the rule table; `src/features/lead-sessions/service.ts:66-91` selects by clinic, source, identity level, local time of day, active flag, and priority; `app/components/guest-chat.tsx:161-197` renders the selected strategy. Adding a clinic/rule is data configuration. Real social integrations remain deferred.
 - **Response expectation tracking: PARTIAL overall.** Per-clinic min/max and `response_expected_by` are persisted, but there is no overdue worker, notification, or delivery receipt (Scenario 01).
-- **Scenario-based automated proof: PARTIAL.** P0 scenario-named tests now cover Scenarios 04, 08–15, and 20. The remaining scenarios and hosted-Supabase/browser paths do not yet have equivalent executable proof.
+- **Scenario-based automated proof: PARTIAL.** Scenario-named tests now cover Scenarios 04, 08–17, 19–21 where implemented. The remaining scenarios and hosted-Supabase/browser paths do not yet have equivalent executable proof.
 
 ## Priority Implementation Plan
 
@@ -886,13 +910,13 @@ Assumption for scheduling: “Friday at 10:00 AM” means Friday, 11 September 2
 
 1. **Expose clinician responses to patients and ship one transactional channel** (Scenario 01). Use an outbox, verified email, neutral notification copy, authenticated deep link, attempts/receipts, and overdue query. Do not attempt four channels.
 2. **Preserve contact/identity without payload over-retention** (Scenarios 02, 05). Add original identity level to the allowlisted snapshot; migrate social handle to contact history; keep contact values out of escalation rows. Phone-only auth is separable if time runs out.
-3. **Add safety-critical memory conflict detection** (Scenarios 18, 19). Flag allergy-none, medication state, and dose conflicts; include them in the handoff.
-4. **Fix exact medication correction language** (Scenario 16). Handle `it`, preserve “last week,” and test correction chains.
+3. **Partially completed: safety-critical memory conflict detection** (Scenarios 18, 19). Allergy-presence, medication-state, and dose conflicts are append-only and included in the handoff. Hosted execution proof and an explicit resolution event remain.
+4. **Completed in repository: exact medication correction language** (Scenario 16). Pronouns, “last week,” ambiguous references, restart, and correction chains are covered.
 
 ### P2 — Reliability/data-integrity issues
 
-1. **Make guest-memory bootstrap durable** (Scenario 17) with an in-transaction outbox/status and idempotent retry.
-2. **Version and validate escalation payloads** (Scenarios 05, 18, 21), including compact correction/conflict history and integrity-aware provenance.
+1. **Completed in repository: retryable guest-memory bootstrap** (Scenario 17). Conversion calls the writer, preserves GuestMessage IDs, records completion state/attempts, and does not claim successful continuation before bootstrap completes.
+2. **Partially completed: escalation and provenance integrity** (Scenarios 05, 18, 21). Compact correction/conflict history, immutable source snapshots, hash verification, and explicit changed/unavailable states are implemented; strict payload versioning and retention resolution remain.
 3. **Add total request/client deadlines and outage state** (Scenarios 13, 14), then display an explicit bounded degraded mode.
 4. **Separate marketing consent operationally** (Scenario 07): default-off UI, writer, withdrawal, versions, and current-consent query.
 5. **Add live funnel aggregates with an honest zero state** (cross-cutting/Scenario 05).
@@ -900,16 +924,16 @@ Assumption for scheduling: “Friday at 10:00 AM” means Friday, 11 September 2
 ### P3 — UX/completeness improvements
 
 1. Add explicit expired-link explanation and fresh-start flow (Scenario 03).
-2. Add grounded post-conversion suggestion chips and profile-import state (Scenario 17).
-3. Improve clinician cold-handoff layout for conflicts, corrections, and evidence state (Scenarios 18, 21).
+2. Add grounded post-conversion suggestion chips; profile-import state and no-repeat continuity copy are implemented (Scenario 17).
+3. Further refine the clinician cold-handoff layout; conflicts, corrections, and evidence integrity states are now visible (Scenarios 18, 21).
 4. Add the remaining scenario-named browser tests and update README/technical brief/demo script with honest statuses.
 5. Extend voice readiness only at the schema boundary: audio artifact, transcription run, consent, ownership, and retention entities. Do not build live Voice AI before the text safety boundary is proven.
 
 ## Final assessment
 
-1. **SURVIVES: 6 scenarios** — 06, 08, 09, 10, 13, 15.
-2. **PARTIAL: 13 scenarios** — 02, 03, 04, 05, 07, 11, 12, 14, 16, 17, 18, 20, 21.
-3. **DOES NOT: 2 scenarios** — 01, 19.
-4. **Highest-risk remaining problems:** clinician replies do not reach patients after tab closure; safety-critical memory contradictions are not detected; hosted cross-clinic isolation lacks real negative proof; cleanup execution and provenance-aware deletion are not operationally evidenced; and provider/log-retention controls cannot be proven from application code alone.
-5. **Recommended implementation order after P0:** apply and verify the P0 migration in hosted Supabase → run hosted two-clinic/consent/deletion tests → patient reply outbox and secure deep link → memory contradictions/corrections → attribution/contact/consent → live metrics and UX.
+1. **SURVIVES: 8 scenarios** — 06, 08, 09, 10, 13, 15, 16, 17.
+2. **PARTIAL: 12 scenarios** — 02, 03, 04, 05, 07, 11, 12, 14, 18, 19, 20, 21.
+3. **DOES NOT: 1 scenario** — 01.
+4. **Highest-risk remaining problems:** clinician replies do not reach patients after tab closure; hosted cross-clinic isolation and the new conflict triggers lack real negative/integration proof; open contradictions have no explicit authorized resolution event; cleanup execution and provenance-aware deletion are not operationally reconciled; and provider/log-retention controls cannot be proven from application code alone.
+5. **Recommended implementation order after these fixes:** apply migrations through `202609100003` in hosted Supabase → run two-clinic/consent/conflict/deletion integration tests → patient reply outbox and secure deep link → explicit conflict-resolution events and retention policy → attribution/contact/consent → live metrics and UX.
 6. **Not realistic to complete production-credibly before the deadline:** all-channel push/SMS/WhatsApp/email delivery (ship one transactional channel); full phone-only plus social-platform authentication/integration; clinical validation of the trilingual rules across dialects; provider Zero Data Retention approval/legal contracting; a full immutable quoted-span/message-version system; production Voice AI; and comprehensive E2E/integration coverage for all 21 scenarios. These remain explicitly PARTIAL/DOES NOT rather than being represented by schema placeholders or UI copy.

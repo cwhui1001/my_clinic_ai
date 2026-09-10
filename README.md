@@ -59,7 +59,7 @@ The default model is configured by `OPENAI_MODEL`; the supplied template uses `g
 ## Hosted Supabase setup
 
 1. Create a Supabase project.
-2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609030006_escalation_clinician_dashboard.sql`.
+2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609100003_living_memory_integrity.sql`.
 3. Run `supabase/seed.sql`.
 4. Copy the project URL, publishable key, and secret key into `.env.local`.
 5. Under **Authentication -> URL Configuration**, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/auth/callback` and `http://localhost:3000/auth/confirm` as redirect URLs.
@@ -143,6 +143,7 @@ Relevant files:
 - `src/server/logging/audit.ts`: structured PHI-free audit events with runtime sanitisation
 - `supabase/migrations/202609100001_p0_safety_boundaries.sql`: non-PHI reservations and authenticated sealing
 - `supabase/migrations/202609100002_guest_retention_schedule.sql`: hourly guest-expiry scheduling
+- `supabase/migrations/202609100003_living_memory_integrity.sql`: durable guest bootstrap, immutable source snapshots, and append-only contradiction records
 
 ## How RBAC is enforced
 
@@ -161,18 +162,19 @@ Authorization is enforced server-side, not by hiding buttons:
 | Nurse | Read | Yes | Yes | Yes |
 | Clinician | Read | Yes | Yes | Yes |
 
-The main enforcement is in migrations `202609030002`, `202609030004`, `202609030005`, and `202609030006`, with matching server checks in `src/features/staff/`.
+The main enforcement is in migrations `202609030002`, `202609030004`, `202609030005`, `202609030006`, and `202609100003`, with matching server checks in `src/features/staff/` and `src/features/memory/`.
 
 ## Manual acceptance path
 
 1. Enter through the Instagram demo URL and confirm the source, campaign, and creative appear in acquisition details.
 2. Ask a factual clinic question, then state a synthetic concern and choose **Continue securely**.
 3. Create or sign in to a verified patient account, explicitly grant healthcare-sharing consent, and confirm the original guest conversation appears in the patient session.
-4. Send `I take Advil`, then `Actually I stopped last week`; confirm the profile shows the stopped state while retaining both revisions in Supabase.
-5. Send `I have crushing chest pain`; confirm High risk, no clinical advice, emergency guidance, and a **Send to Clinic** action.
-6. Send the escalation and confirm its status changes to `queued` with an honest response window.
-7. Sign in at `/staff/login`, open the queue, and inspect the trigger, point-in-time profile, acquisition context, and provenance.
-8. Record a clinician response and close the escalation.
+4. Send `I take Advil`, then `Actually I stopped it last week`, then `Actually I started taking it again`; confirm the profile retains all three sourced revisions.
+5. Send `No known allergies`, then `Penicillin gave me a rash`; confirm the patient profile flags an open contradiction and the clinician handoff preserves both sources.
+6. Send `I have crushing chest pain`; confirm High risk, no clinical advice, emergency guidance, and a **Send to Clinic** action.
+7. Send the escalation and confirm its status changes to `queued` with an honest response window.
+8. Sign in at `/staff/login`, open the queue, and inspect the trigger, contradiction history, point-in-time profile, acquisition context, and provenance.
+9. Record a clinician response and close the escalation.
 
 Use only synthetic names, identifiers, contact details, and health scenarios.
 
