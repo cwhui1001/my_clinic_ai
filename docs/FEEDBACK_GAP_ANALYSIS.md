@@ -1250,3 +1250,675 @@ Apply every repository migration to a non-production hosted project, run the opt
 `test_scenario_20_multiclinic_isolation.test.ts` proves the central identity-derived authorization contract and service-role sequencing. `test_scenario_20_hosted_multiclinic_isolation.test.ts` is the negative hosted test for two clinics, two clinicians, and two patients. It is intentionally opt-in because it creates and deletes hosted Auth/database fixtures; Scenario 20 remains PARTIAL until that suite passes against the deployed project.
 
 The overall count remains **9 SURVIVES, 12 PARTIAL, 0 DOES NOT**. Scenario 20 is materially better evidenced but is not promoted on repository contracts alone.
+
+# Final Adversarial Audit — 11 September 2026
+
+This is the final scorecard and supersedes every earlier status/count in this document. The standard used here is stricter than the implementation reassessments above: a database contract inspected as text is not treated as an executed database integration test. The local run passed 123 tests in 34 files; 8 tests in the two hosted Supabase suites were skipped by design. Lint, TypeScript checking, and the Next.js production build passed.
+
+## Scenario 01 — Clinician reply after the tab closes
+
+### Status
+
+PARTIAL
+
+### Where
+
+`app/api/staff/escalations/[escalationId]/responses/route.ts:13-24`; `src/features/notifications/service.ts:14-92`; `src/features/notifications/payload.ts:1-7`; `public/sw.js:1-18`; `supabase/migrations/202609100005_continuity_reengagement.sql:20-77`; `app/components/patient-chat.tsx:159-165`.
+
+### Execution path
+
+Clinician POST → authenticated `respond_to_escalation` RPC → response trigger writes `clinician_response_at` and notification job → immediate Web Push attempt → service worker opens `/login?next=...` → re-authenticated RLS-owned patient session and exact escalation anchor.
+
+### Test
+
+`tests/scenarios/test_scenario_01_response_delivery.test.ts` validates the neutral payload, safe return path, response/outbox contract, and unavailable states. It does not send real Web Push.
+
+### What breaks first
+
+Without configured VAPID keys, browser permission, and an active subscription, Farah receives nothing after closing the tab and must return manually. A transient send failure has no background retry worker.
+
+### What changed
+
+Clinician replies now persist atomically with a PHI-free outbox, structured response timestamps, delivery outcomes, optional Web Push, and an authentication-gated exact-conversation link.
+
+### Remaining weakness
+
+No recorded end-to-end device delivery, no retry worker/monitor, and no SMS, WhatsApp, or email fallback. The UI correctly calls the response deadline an expectation rather than a guarantee.
+
+## Scenario 02 — Social lead has only a handle and prepaid phone
+
+### Status
+
+PARTIAL
+
+### Where
+
+`src/features/lead-sessions/service.ts:146-181`; `app/api/auth/phone/start/route.ts:16-36`; `app/api/auth/phone/verify/route.ts:14-32`; `app/api/conversion/route.ts:23-66`; `supabase/migrations/202609100004_identity_consent_escalation.sql:1-5,120-214,245-259`.
+
+### Execution path
+
+Social capture → encrypted handle/phone on LeadSession → Supabase phone OTP or email auth → conversion validates verified identity → encrypted ContactPoint rows plus PatientSession acquisition identity → minimized escalation identity classification.
+
+### Test
+
+`tests/scenarios/test_scenario_02_phone_social_identity.test.ts`; supporting normalization coverage in `tests/unit/attribution.test.ts`.
+
+### What breaks first
+
+The submitted hosted project has phone auth disabled because no working SMS provider is configured. Aina cannot complete phone-only authentication and must use the working email/password route; an Instagram handle is deliberately not treated as authentication.
+
+### What changed
+
+Phone/social capture is preserved, phone OTP code exists, conversion no longer requires email specifically, and contact data remains outside long-lived escalation snapshots.
+
+### Remaining weakness
+
+No Malaysian OTP delivery test, no active SMS provider, no Instagram authentication/DM integration, and no hosted phone-conversion integration test.
+
+## Scenario 03 — Return three days later on another device
+
+### Status
+
+PARTIAL
+
+### Where
+
+`app/api/lead-sessions/recovery-link/route.ts:10-27`; `app/api/lead-sessions/recover/route.ts:14-24`; `app/components/guest-recovery.tsx:8-30`; `src/features/lead-sessions/service.ts:235-259`; `supabase/migrations/202609100005_continuity_reengagement.sql:143-203`.
+
+### Execution path
+
+Active guest cookie → recovery URL with fragment credential → browser removes fragment → POST token exchange → hash lookup and state check → one-time token rotation → new HttpOnly cookie → active thread, or explicit expired/purged/invalid UI.
+
+### Test
+
+`tests/scenarios/test_scenario_03_expired_cross_device_recovery.test.ts`.
+
+### What breaks first
+
+If Mei Ling did not copy the link before leaving, no transport delivers it to her. If it expired, she receives an honest explanation and cannot restore the deleted conversation; she must start again.
+
+### What changed
+
+Recovery is cross-device capable for a possessed active link, token exchange is POST-only and rotating, and expired/purged states are explicit.
+
+### Remaining weakness
+
+No automatic delivery channel, no browser E2E test, and expired clinical context cannot be carried forward without prior conversion.
+
+## Scenario 04 — Useful value before identity; no pre-consent staff visibility
+
+### Status
+
+PARTIAL
+
+### Where
+
+`src/features/guest-chat/policy.ts:37-55`; `src/features/guest-chat/service.ts:151-171,180-325`; `app/components/guest-chat.tsx:100-109,229-244`; `supabase/migrations/202609100006_guest_boundary_enforcement.sql:106-166`; staff RLS at `supabase/migrations/202609030006_escalation_clinician_dashboard.sql:512-590`.
+
+### Execution path
+
+Guest question → safe useful response → committed `value_event` → continuation CTA appears → identity/auth → explicit healthcare-sharing consent → conversion v3 checks value server-side → staff RLS becomes eligible only after consent.
+
+### Test
+
+`tests/scenarios/test_scenario_04_value_and_guest_visibility.test.ts` and `tests/scenarios/test_scenario_04_guest_visibility.test.ts`; hosted negative test exists in `tests/integration/test_scenarios_04_12_hosted_boundary.test.ts` but was skipped.
+
+### What breaks first
+
+The repository path is correct, but a hosted project missing the latest migration could retain older grants/policies. That deployment mismatch would be first visible as premature conversion or staff visibility.
+
+### What changed
+
+The identity ask was moved behind a meaningful value event and enforced again in the conversion RPC; the permissive older conversion grant is revoked.
+
+### Remaining weakness
+
+No executed hosted RLS evidence or browser-level CTA timing test in this final run.
+
+## Scenario 05 — Escalation attribution is too little or too much
+
+### Status
+
+PARTIAL
+
+### Where
+
+`supabase/migrations/202609100004_identity_consent_escalation.sql:49-72,245-259,342-358`; `src/features/escalation/schema.ts:35-49`; `src/features/escalation/service.ts:64-101`; `src/features/staff/service.ts:80-113`.
+
+### Execution path
+
+Lead attribution → PatientSession stores acquisition and current identity separately → queue builder creates bounded payload → escalation trigger enriches identity → schema rejects email/phone/social handle → staff review renders acquisition and verification state.
+
+### Test
+
+`tests/scenarios/test_scenario_05_attribution_minimisation.test.ts`.
+
+### What breaks first
+
+If the hosted migration is stale, a nurse may see incomplete identity classification or excess PII. The local test validates schema and SQL contracts but does not execute the three-hop hosted transaction.
+
+### What changed
+
+Original identity level, current authenticated identity, auth method, channel, campaign, and creative are retained while contact PII is stripped from the durable snapshot.
+
+### Remaining weakness
+
+No hosted LeadSession → PatientSession → Escalation integration assertion and no deletion-request integration test proving contact erasure cannot leave a copy elsewhere.
+
+## Scenario 06 — Broken earned-email promise
+
+### Status
+
+SURVIVES
+
+### Where
+
+There is no email sender or earned-email CTA. Honest transport copy is in `app/components/push-notification-control.tsx:41-43,60-71` and response expectation copy in `app/components/patient-chat.tsx:161-165`.
+
+### Execution path
+
+User-facing surfaces → no promise to email a summary or notify through email → optional Web Push is described as attempted/not guaranteed → unavailable transport tells the patient to return securely.
+
+### Test
+
+`tests/scenarios/test_scenario_06_no_unearned_email_promise.test.ts` scans all relevant guest, patient, consent, recovery, and notification surfaces.
+
+### What breaks first
+
+A future page outside the test allowlist could reintroduce unsupported delivery copy.
+
+### What changed
+
+Unearned email/notification promises and hardcoded 12–18-hour guarantees were removed.
+
+### Remaining weakness
+
+No real transactional email transport exists; that is intentionally disclosed, not simulated.
+
+## Scenario 07 — Transactional and marketing consent are fused
+
+### Status
+
+PARTIAL
+
+### Where
+
+`app/components/consent-form.tsx:55-78`; `app/api/conversion/route.ts:31-66`; `app/api/consent/marketing/route.ts:16-37`; `supabase/migrations/202609100004_identity_consent_escalation.sql:224-259,271-340`.
+
+### Execution path
+
+Required healthcare-sharing checkbox → append-only healthcare consent event → separate optional default-off marketing checkbox → separate versioned marketing event → authenticated grant/withdrawal RPC → latest event query defaults false.
+
+### Test
+
+`tests/scenarios/test_scenario_07_separate_consents.test.ts` and `tests/unit/auth-consent.test.ts`.
+
+### What breaks first
+
+The data is independently queryable, but there is no marketing operations screen or real campaign sender. Legal wording/version approval is not proven by code.
+
+### What changed
+
+Marketing consent is separate, optional, timestamped/versioned through append-only events, false by default, and independently revocable.
+
+### Remaining weakness
+
+No hosted consent-query integration test and no broader purpose taxonomy beyond healthcare sharing and marketing email.
+
+## Scenario 08 — Model is the only emergency decision-maker
+
+### Status
+
+SURVIVES
+
+### Where
+
+`src/features/patient-chat/service.ts:38-48`; `src/features/patient-chat/pipeline.ts:47-129,160-183`; `src/features/risk/policy.ts:58-96,147-157`; guest path `src/features/guest-chat/service.ts:180-191`.
+
+### Execution path
+
+Raw patient text → deterministic risk → non-PHI reservation → redaction → High returns local 999 copy without model → otherwise model proposal → `maxRiskDecision` → safe response/storage.
+
+### Test
+
+`tests/scenarios/test_scenario_08_unlowerable_emergency_floor.test.ts` executes High/model-low, Medium/model-low, max-risk, and guest-redaction-failure cases.
+
+### What breaks first
+
+An emergency phrasing absent from the finite rule set may rely on the model; false negatives remain possible outside tested patterns.
+
+### What changed
+
+The deterministic emergency result became an unlowerable floor and High no longer calls the model.
+
+### Remaining weakness
+
+Rules are conservative pattern matching, not clinical validation or comprehensive language understanding.
+
+## Scenario 09 — Malay/English and Chinese emergency phrasing
+
+### Status
+
+SURVIVES
+
+### Where
+
+`src/features/risk/emergency-rules.ts:1-46`; shared patient policy `src/features/risk/policy.ts:58-74`; guest classifier `src/features/guest-chat/policy.ts:1-35`.
+
+### Execution path
+
+Raw English/Malay/Chinese or mixed text → Unicode/space normalization → shared trilingual rules → deterministic High → local 999 guidance → zero model calls.
+
+### Test
+
+`tests/scenarios/test_scenario_09_multilingual_emergency_floor.test.ts` executes English, mixed Malay-English, Malay, Simplified Chinese, and Traditional Chinese examples on guest and patient paths.
+
+### What breaks first
+
+Untested dialects, spelling variants, code-switching, or indirect symptom descriptions can miss the floor.
+
+### What changed
+
+One shared EN/MS/ZH emergency ruleset now covers chest symptoms, breathing difficulty, heavy bleeding, self-harm, and unconsciousness patterns.
+
+### Remaining weakness
+
+No clinician-reviewed corpus, recall measurement, or Bahasa/Chinese linguistic QA beyond the explicit cases.
+
+## Scenario 10 — Wrong risk/redaction/MyKad order
+
+### Status
+
+SURVIVES
+
+### Where
+
+`src/features/patient-chat/service.ts:38-81,97-155`; `src/features/patient-chat/pipeline.ts:56-65,111-183`; guest path `src/features/guest-chat/service.ts:180-191,222-284`; MyKad rules `src/features/redaction/redact.ts:65-80,116-131`.
+
+### Execution path
+
+Raw message → deterministic risk → placeholder reservation → local MyKad/phone/email/name redaction → leak assertion → redacted provider call → max risk/output gate → encrypted raw seal → structured completion.
+
+### Test
+
+`tests/scenarios/test_scenario_10_risk_redaction_order_mykad.test.ts` executes MyKad redaction/provider capture, forced redaction failure, and validates both production ordering contracts.
+
+### What breaks first
+
+An identifier class outside the detector can reach the provider in redacted-context construction; the application does not claim exhaustive PHI recognition.
+
+### What changed
+
+Risk moved before redaction, MyKad `900101-14-5678` support and a leak assertion were added, and raw ciphertext is sealed only after release gates.
+
+### Remaining weakness
+
+No external DLP service or exhaustive multilingual name/address detector; real PHI use still requires contractual/provider review.
+
+## Scenario 11 — PHI escapes through logs/errors/provider retention
+
+### Status
+
+PARTIAL
+
+### Where
+
+`src/server/logging/sanitize.ts:1-26`; `src/server/logging/audit.ts:1-14`; `src/server/openai/guest-response.ts:42-149`; `src/server/openai/patient-response.ts:44-179`; API exception mapping such as `app/api/staff/escalations/[escalationId]/responses/route.ts:25-31`.
+
+### Execution path
+
+Domain event → allowlisted action/outcome/UUID-or-hash/error code → sanitized JSON log; provider request → redacted input + hashed safety identifier + `store:false`; provider/error body → stable local error code only.
+
+### Test
+
+`tests/scenarios/test_scenario_11_no_phi_egress.test.ts` executes hostile-field sanitization and checks provider request contracts.
+
+### What breaks first
+
+Framework, hosting, reverse-proxy, browser, or third-party APM logs outside this logger may retain request/error material. Provider-side retention and contractual terms are not demonstrated in-repository.
+
+### What changed
+
+Operational logs now reject free text, raw error bodies are not read, provider inputs are redacted, calls are bounded, and provider storage is requested off.
+
+### Remaining weakness
+
+No deployment log grep evidence, no cited/verified provider retention window, no DPA/residency proof, and no infrastructure log configuration audit.
+
+## Scenario 12 — Guest PHI boundary, retention, and rate limiting
+
+### Status
+
+PARTIAL
+
+### Where
+
+Guest append/rate limit `src/features/guest-chat/service.ts:180-203` and `supabase/migrations/202609030001_guest_chat.sql:77-138`; token-bound read `src/features/guest-chat/service.ts:151-171` and `supabase/migrations/202609100006_guest_boundary_enforcement.sql:72-103`; cleanup `supabase/migrations/202609100005_continuity_reengagement.sql:176-203` and `202609100006_guest_boundary_enforcement.sql:14-70`.
+
+### Execution path
+
+Guest token cookie → token-hash RPC → database rate limit before model → encrypted sealed message → no staff RLS path before conversion/consent → hourly `pg_cron` target → delete abandoned guest messages and contact ciphertext → record cleanup ledger/tombstone.
+
+### Test
+
+`tests/scenarios/test_scenario_12_guest_boundary_retention.test.ts`; `tests/integration/test_scenarios_04_12_hosted_boundary.test.ts` covers denial, rate limit, cross-patient access, and deletion but was skipped.
+
+### What breaks first
+
+If `pg_cron` or migration 006 is not active in hosted Supabase, reads expire but physical deletion is delayed. If hosted RLS differs, pre-consent denial is unproven.
+
+### What changed
+
+The rate limiter is invoked, guest reads are token-bound, staff visibility requires same-clinic consent, cleanup is scheduled, destructive, and observable through a run ledger.
+
+### Remaining weakness
+
+No successful hosted cron/run-ledger evidence, no cleanup alerting, no distributed perimeter limiter, and converted clinical-provenance retention still needs an approved policy.
+
+## Scenario 13 — Provider hangs on the first message
+
+### Status
+
+SURVIVES
+
+### Where
+
+`src/server/openai/provider-timeout.ts:1-29`; guest invocation `src/server/openai/guest-response.ts:65-149`; patient invocation `src/server/openai/patient-response.ts:59-179`; degraded UI result handling `app/components/guest-chat.tsx:85-117`.
+
+### Execution path
+
+Guest raw risk check → redaction → provider request with AbortController → 15-second configured deadline → stable timeout error → local safety-only response → spinner ends.
+
+### Test
+
+`tests/scenarios/test_scenario_13_provider_timeout.test.ts` advances fake time and proves the hung fetch is aborted at 15 seconds.
+
+### What breaks first
+
+A database/network stall outside the provider fetch has no whole-route deadline, so not every possible request stall is bounded.
+
+### What changed
+
+Both OpenAI calls now share an explicit aborting provider timeout rather than relying on SDK/network defaults.
+
+### Remaining weakness
+
+No browser timing/E2E assertion and no global request deadline.
+
+## Scenario 14 — Provider is down for an hour
+
+### Status
+
+PARTIAL
+
+### Where
+
+Patient fallback `src/features/patient-chat/pipeline.ts:180-192`; local copy `src/features/risk/policy.ts:129-157`; guest fallback `src/features/guest-chat/service.ts:241-284`; High bypass `src/features/patient-chat/pipeline.ts:111-129`.
+
+### Execution path
+
+Raw deterministic rules → High returns 999 immediately; otherwise redaction → provider failure/timeout → stable error classification → rule-preserving Medium fallback → explicitly labelled safety-only response.
+
+### Test
+
+`tests/scenarios/test_scenario_14_provider_outage_degraded_mode.test.ts` executes provider failure and a Malay emergency during outage.
+
+### What breaks first
+
+Every non-High eligible request still attempts the failed provider and may wait until timeout. During an hour-long outage this produces repeated delay and load.
+
+### What changed
+
+Provider failure no longer removes deterministic risk or leaks provider detail; safe local guidance remains available.
+
+### Remaining weakness
+
+No circuit breaker, shared outage state, retry/backoff worker, health alert, or full guest-route outage test.
+
+## Scenario 15 — Model diagnoses despite the prompt
+
+### Status
+
+SURVIVES
+
+### Where
+
+`src/features/risk/output-safety.ts:1-27`; patient invocation `src/features/patient-chat/pipeline.ts:133-172`; guest invocation `src/features/guest-chat/service.ts:265-273`.
+
+### Execution path
+
+Model draft → local PHI scrub/assertion → deterministic output patterns → unsafe draft raises risk to Medium or is replaced → only safe Low/cited text can render.
+
+### Test
+
+`tests/scenarios/test_scenario_15_output_diagnosis_gate.test.ts` executes the requested gastritis/cardiac text and paraphrases through guest and patient gates.
+
+### What breaks first
+
+A novel diagnostic or treatment claim outside the finite output patterns can evade the gate.
+
+### What changed
+
+The prompt is no longer the sole control; unsafe patient output is blocked and replaced with local non-advisory copy.
+
+### Remaining weakness
+
+Regex rules are not a clinically validated semantic classifier, and there is no sampled human-output review process.
+
+## Scenario 16 — Medication correction and correction of correction
+
+### Status
+
+PARTIAL
+
+### Where
+
+`src/features/memory/extract.ts:5-65,180-193`; `src/features/patient-chat/pipeline.ts:103-109,143-177`; append-only writer `supabase/migrations/202609030005_living_memory.sql:21-69,153-204`; history UI `app/components/patient-chat.tsx:206-252`.
+
+### Execution path
+
+Patient message → deterministic/model memory proposal with source ID → encrypted proposal → `apply_patient_memory` → new MemoryRevision supersedes current revision → MemoryItem pointer changes → all revisions render in provenance history.
+
+### Test
+
+`tests/scenarios/test_scenario_16_correction_chain.test.ts` executes Advil active → stopped last week → active again extraction; its database assertions inspect the migration rather than running PostgreSQL.
+
+### What breaks first
+
+A migration/deployment defect in the actual writer could still prevent or mutate a revision without this local suite detecting it.
+
+### What changed
+
+Corrections use superseding inserts, preserve timeline text/source IDs, and support a correction of a correction.
+
+### Remaining weakness
+
+No executed hosted three-message mutation test; pronoun resolution intentionally refuses ambiguous multiple-medication cases.
+
+## Scenario 17 — Guest facts survive conversion
+
+### Status
+
+PARTIAL
+
+### Where
+
+Production call `app/api/conversion/route.ts:46-70`; writer `src/features/memory/service.ts:166-235`; bootstrap ledger `supabase/migrations/202609100003_living_memory_integrity.sql:156-205`; no-repeat UI `app/patient/sessions/[sessionId]/page.tsx:51-64` and `app/components/patient-chat.tsx:101`.
+
+### Execution path
+
+Conversion v3 → PatientSession ID → chronological origin GuestMessages → deterministic extraction using original message IDs → `apply_patient_memory` batches → bootstrap status success/failure → patient sees original thread and “add/correct” prompt.
+
+### Test
+
+`tests/scenarios/test_scenario_17_guest_memory_conversion.test.ts` executes extraction/provenance and checks the called writer/order/UI contracts; it does not execute hosted conversion plus database bootstrap.
+
+### What breaks first
+
+If bootstrap fails, conversion returns an error and the authenticated page warns that structured import is incomplete; original messages remain visible. An already expired/purged guest cannot convert and must restart.
+
+### What changed
+
+A real post-conversion writer now carries facts with original GuestMessage provenance and records retryable completion state; intake no longer asks the concern again.
+
+### Remaining weakness
+
+No hosted conversion/bootstrap integration test and deterministic extraction covers only conservative fact forms.
+
+## Scenario 18 — Nurse opens the handoff cold
+
+### Status
+
+PARTIAL
+
+### Where
+
+Payload builder `src/features/escalation/payload.ts:5-73`; queue path `src/features/escalation/service.ts:64-116`; schemas `src/features/escalation/schema.ts:5-69`; clinician DTO `src/features/staff/service.ts:47-126`; UI `app/staff/escalations/[escalationId]/page.tsx:12-55`.
+
+### Execution path
+
+Patient Send to Clinic → RLS-owned escalation/risk/trigger → current memory plus correction/conflict history → bounded schema validation → encrypted summary/profile and provenance RPC → same-clinic consented nurse review.
+
+### Test
+
+`tests/scenarios/test_scenario_18_cold_handoff_payload.test.ts` executes schema acceptance/rejection; `tests/unit/escalation-payload.test.ts` executes the builder. No hosted queue-to-dashboard integration runs by default.
+
+### What breaks first
+
+If the deployment lacks the migrations or encrypted payload cannot decrypt/validate, the nurse receives a forbidden/database error rather than the structured review. There is no browser E2E proof.
+
+### What changed
+
+The handoff includes complaint, risk/reason/confidence, current facts, correction history, open contradictions, trigger/profile provenance, minimized acquisition context, and verified/acquisition identity state.
+
+### Remaining weakness
+
+No hosted cold-open integration test, no formal nurse usability validation, and snapshots are bounded rather than a complete chart.
+
+## Scenario 19 — Allergy/medication/dosage contradiction
+
+### Status
+
+PARTIAL
+
+### Where
+
+Extraction `src/features/memory/extract.ts:13-143`; conflict trigger `supabase/migrations/202609100003_living_memory_integrity.sql:58-152`; load/projection `src/features/memory/service.ts:19-108`; handoff `src/features/escalation/payload.ts:11-60`; patient flag UI `app/components/patient-chat.tsx:223-244`.
+
+### Execution path
+
+New revision → compare with superseded/current safety-sensitive evidence → append MemoryConflict for allergy presence, medication status, or dosage → preserve both revisions → profile alert → escalation summary/provenance includes both sides.
+
+### Test
+
+`tests/scenarios/test_scenario_19_safety_critical_contradictions.test.ts` executes extraction and payload visibility; SQL trigger behavior is inspected, not executed against PostgreSQL.
+
+### What breaks first
+
+Without the hosted trigger, the current fact can look like last-write-wins and the clinician may miss the contradiction. Even with it, there is no authorized workflow to resolve/annotate an open conflict.
+
+### What changed
+
+Conservative detection and clinician-visible/open conflict evidence were added for allergies, medication state, and dosage; no evidence is silently deleted.
+
+### Remaining weakness
+
+No hosted trigger test, no reverse-order integration fixture, and no explicit clinician resolution event/workflow.
+
+## Scenario 20 — Clinic B tenant isolation
+
+### Status
+
+PARTIAL
+
+### Where
+
+Central identity-derived functions `supabase/migrations/202609030006_escalation_clinician_dashboard.sql:114-145`; staff/patient RLS `:512-590`; mutation checks `:374-496`; patient ownership `supabase/migrations/202609030002_patient_conversion.sql:387-439`; RLS-first services `src/features/staff/service.ts:11-78` and `src/features/patient-sessions/service.ts:20-101`.
+
+### Execution path
+
+Supabase session → `auth.uid()` → patient ownership or active same-clinic membership → latest same-clinic healthcare consent → RLS rows/RPC mutation → optional privileged follow-up constrained by trusted record clinic.
+
+### Test
+
+`tests/scenarios/test_scenario_20_multiclinic_isolation.test.ts` and `test_scenario_20_cross_clinic_isolation.test.ts` passed. The true negative fixture suite `tests/integration/test_scenario_20_hosted_multiclinic_isolation.test.ts` was skipped because `RUN_HOSTED_TENANT_TESTS` was not enabled.
+
+### What breaks first
+
+If hosted RLS/grants differ from the repository, Clinic B's queue could show Clinic A rows. The required deployed two-clinic denial was not executed in this audit.
+
+### What changed
+
+Authorization is centralized in `auth.uid()`-based membership/consent helpers; protected routes accept resource IDs rather than trusting request clinic IDs; a two-clinic hosted test now exists.
+
+### Remaining weakness
+
+No recorded hosted pass, no penetration test, and future unscoped service-role helpers remain a regression risk.
+
+## Scenario 21 — Provenance source changed or disappeared
+
+### Status
+
+PARTIAL
+
+### Where
+
+Immutable capture `supabase/migrations/202609100003_living_memory_integrity.sql:15-52`; resolver `src/features/memory/provenance.ts:3-8`; loader `src/features/memory/service.ts:43-108`; fallback UI `app/components/patient-chat.tsx:236-247`; payload snapshot `src/features/escalation/payload.ts:14-38`.
+
+### Execution path
+
+MemoryRevision insert → capture source message hash and encrypted snapshot → later load current message if authorized → compare hash → mark verified/changed/unavailable → link only verified evidence, otherwise show immutable snapshot.
+
+### Test
+
+`tests/scenarios/test_scenario_21_provenance_integrity.test.ts` executes resolver states and checks capture/UI contracts.
+
+### What breaks first
+
+The source-capture trigger is not run in hosted integration here. There is no first-class message-version table or edit workflow, and retention policy for converted clinical evidence remains unresolved.
+
+### What changed
+
+Provenance no longer relies on message ID alone; each fact keeps an immutable encrypted source snapshot/hash and renders an explicit changed/unavailable state.
+
+### Remaining weakness
+
+No hosted mutation/deletion test, no offsets/exact-span highlighting, and no reconciled erasure policy for provenance snapshots.
+
+## Final Judges' Checklist
+
+- [x] Deterministic multilingual emergency floor — executable EN/MS/ZH shared rules and scenario 09 tests.
+- [x] Model cannot lower rule risk — `maxRiskDecision`, scenario 08.
+- [x] Risk before redaction — patient and guest call paths plus scenario 10.
+- [x] Redaction before LLM — provider receives only redacted fields, scenario 10.
+- [x] Redaction fails closed — no provider call and blocked/local copy, scenarios 08/10.
+- [x] Malaysian MyKad redaction — dashed and compact form, scenario 10.
+- [ ] PHI-safe logging — PARTIAL: application logger/provider request path is guarded; infrastructure/provider retention is unverified.
+- [ ] Append-only memory corrections — PARTIAL: implementation/contract exists, but no executed hosted mutation chain.
+- [ ] Provenance survives corrections — PARTIAL for the same database-integration reason.
+- [ ] Guest facts survive conversion — PARTIAL: production writer exists; no executed hosted conversion/bootstrap test.
+- [ ] Attribution survives all three hops — PARTIAL: executable path/schema exists; no hosted three-hop assertion.
+- [ ] Live statistics plus honest zero branch — DOES NOT: funnel events exist, but there is no live funnel-statistics query/dashboard. The staff queue has an honest empty branch, which is not the requested conversion statistics.
+- [x] Server-side RBAC — session-derived RLS and narrow RPC checks are in the executable path.
+- [ ] Cross-clinic isolation — PARTIAL until the opt-in hosted Clinic A/B suite passes.
+- [ ] Consent-gated guest visibility — PARTIAL until hosted denial evidence is recorded.
+- [ ] Guest retention cleanup actually executes — PARTIAL: `pg_cron` target/run ledger exists; hosted scheduler execution is not proven.
+- [x] Guest rate limiting actually executes — append RPC runs before provider and enforces the database limit.
+- [x] Explicit model timeout — shared AbortController deadline, scenario 13.
+- [x] Rule-only degraded mode — emergency bypass and local provider-failure copy; operational outage handling remains partial under scenario 14.
+- [x] Patient-facing output safety gate — deterministic release gate, scenario 15.
+- [ ] Real re-engagement transport — PARTIAL: real Web Push code exists, but device delivery/configuration/retry is unproven and there is no fallback.
+- [x] Secure deep-link recovery — fragment credential, POST exchange, rotation, HttpOnly cookie; possession does not bypass patient auth.
+- [x] Transactional/clinical and marketing consent separated — independent events and default-off marketing control.
+- [ ] Voice-ready schema — PARTIAL: nullable audio references/duration fields exist, but no artifact ownership table, upload/transcription API, consent, or test.
+- [ ] Declarative channel rules — PARTIAL: `channel_rules` drives opening selection by clinic/source/identity/time, but there is no automated output-difference test for every claimed dimension and seeded rules use `time_of_day='any'`.
+
+## Final Scorecard
+
+| Status | Scenarios | Count |
+|---|---|---:|
+| SURVIVES | 06, 08, 09, 10, 13, 15 | 6 |
+| PARTIAL | 01, 02, 03, 04, 05, 07, 11, 12, 14, 16, 17, 18, 19, 20, 21 | 15 |
+| DOES NOT | None of the numbered scenarios; live funnel statistics is a separate checklist item that DOES NOT | 0 |
+
+This downgrade from the earlier 9/12 score is intentional: Scenarios 16, 17, and 18 have real production paths and useful unit/contract tests, but their PostgreSQL/conversion/handoff paths were not executed against hosted Supabase during the final audit.
