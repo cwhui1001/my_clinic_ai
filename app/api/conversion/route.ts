@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createSupabaseServerClient();
     const { data: patientSessionId, error } = await supabase.rpc(
-      "convert_lead_to_patient_v2",
+      "convert_lead_to_patient_v3",
       {
         p_recovery_token_hash: hashGuestToken(recoveryToken),
         p_phone_ciphertext: encryptProtectedContent(phone),

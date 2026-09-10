@@ -50,6 +50,10 @@ export function requiresSecureContinue(intent: GuestIntent) {
   return intent === "clinical_summary" || intent === "emergency";
 }
 
+export function hasMeaningfulValueEvent(valueEventCount: number) {
+  return Number.isInteger(valueEventCount) && valueEventCount > 0;
+}
+
 export function isGuestResponseSafe(text: string) {
   return isPatientFacingOutputSafe(text);
 }

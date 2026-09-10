@@ -12,6 +12,7 @@ import {
   GUEST_DEGRADED_MODE_RESPONSE,
   GUEST_CHAT_PROMPT_VERSION,
   guestRedactionFailureResponse,
+  hasMeaningfulValueEvent,
   isGuestResponseSafe,
   requiresSecureContinue,
   SAFE_FAILURE_RESPONSE,
@@ -151,11 +152,9 @@ export async function getGuestThread(recoveryToken: string): Promise<GuestThread
   const [{ data, error }, { data: valueEvents, error: valueEventError }] =
     await Promise.all([
       supabase
-        .from("messages")
-        .select("*")
-        .eq("lead_session_id", session.id)
-        .in("status", ["completed", "blocked"])
-        .order("sequence_number", { ascending: true }),
+        .rpc("read_guest_messages", {
+          p_recovery_token_hash: hashGuestToken(recoveryToken),
+        }),
       supabase
         .from("funnel_events")
         .select("id")
@@ -169,9 +168,7 @@ export async function getGuestThread(recoveryToken: string): Promise<GuestThread
   return {
     session,
     messages,
-    secureContinuationAvailable:
-      Boolean(valueEvents?.length) ||
-      messages.some((message) => message.requiresSecureContinue),
+    secureContinuationAvailable: hasMeaningfulValueEvent(valueEvents?.length ?? 0),
   };
 }
 
@@ -308,7 +305,7 @@ export async function createGuestTurn(
       p_redaction_summary: redactionSummary,
       p_assistant_ciphertext: encryptProtectedContent(answer),
       p_assistant_sha256: hashProtectedContent(answer),
-      p_requires_secure_continue: requiresSecureContinue(intent),
+      p_requires_secure_continue: valueType !== null && requiresSecureContinue(intent),
       p_value_type: valueType,
       p_provider: provider,
       p_model: model,
