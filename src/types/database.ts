@@ -47,6 +47,7 @@ export type MemoryConflictKind = "allergy_presence" | "medication_status" | "dos
 export type MemoryConflictStatus = "open" | "resolved";
 export type MemberRole = "staff" | "nurse" | "clinician";
 export type EscalationStatus = "required" | "queued" | "acknowledged" | "responded" | "closed";
+export type NotificationJobStatus = "pending" | "delivered" | "failed" | "no_subscription" | "transport_unavailable";
 export type FunnelEventName =
   | "visitor"
   | "conversation_started"
@@ -640,6 +641,7 @@ export type Database = {
           response_expected_by: string | null;
           acknowledged_by_membership_id: string | null;
           acknowledged_at: string | null;
+          clinician_response_at: string | null;
           created_at: string;
           sent_at: string | null;
           updated_at: string;
@@ -662,6 +664,7 @@ export type Database = {
           response_expected_by?: string | null;
           acknowledged_by_membership_id?: string | null;
           acknowledged_at?: string | null;
+          clinician_response_at?: string | null;
           created_at?: string;
           sent_at?: string | null;
           updated_at?: string;
@@ -709,6 +712,30 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["clinician_responses"]["Insert"]>;
+        Relationships: [];
+      };
+      push_subscriptions: {
+        Row: { id: string; clinic_id: string; patient_id: string; subscription_ciphertext: string; endpoint_hash: string; active: boolean; expires_at: string | null; last_success_at: string | null; failure_count: number; created_at: string; updated_at: string };
+        Insert: { id?: string; clinic_id: string; patient_id: string; subscription_ciphertext: string; endpoint_hash: string; active?: boolean; expires_at?: string | null; last_success_at?: string | null; failure_count?: number; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["push_subscriptions"]["Insert"]>;
+        Relationships: [];
+      };
+      notification_jobs: {
+        Row: { id: string; clinic_id: string; patient_id: string; patient_session_id: string; escalation_id: string; clinician_response_id: string; transport: "web_push"; status: NotificationJobStatus; attempt_count: number; delivered_at: string | null; last_error_code: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; clinic_id: string; patient_id: string; patient_session_id: string; escalation_id: string; clinician_response_id: string; transport?: "web_push"; status?: NotificationJobStatus; attempt_count?: number; delivered_at?: string | null; last_error_code?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["notification_jobs"]["Insert"]>;
+        Relationships: [];
+      };
+      notification_attempts: {
+        Row: { id: string; notification_job_id: string; push_subscription_id: string | null; outcome: "delivered" | "failed" | "gone" | "transport_unavailable"; provider_status: number | null; error_code: string | null; attempted_at: string };
+        Insert: { id?: string; notification_job_id: string; push_subscription_id?: string | null; outcome: "delivered" | "failed" | "gone" | "transport_unavailable"; provider_status?: number | null; error_code?: string | null; attempted_at?: string };
+        Update: Partial<Database["public"]["Tables"]["notification_attempts"]["Insert"]>;
+        Relationships: [];
+      };
+      lead_recovery_tombstones: {
+        Row: { recovery_token_hash: string; state: "expired" | "purged"; expired_at: string; purged_at: string; updated_at: string };
+        Insert: { recovery_token_hash: string; state?: "expired" | "purged"; expired_at: string; purged_at: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["lead_recovery_tombstones"]["Insert"]>;
         Relationships: [];
       };
     };
@@ -918,6 +945,18 @@ export type Database = {
       expire_lead_sessions: {
         Args: Record<PropertyKey, never>;
         Returns: number;
+      };
+      rotate_lead_recovery_token: {
+        Args: { p_current_token_hash: string; p_new_token_hash: string };
+        Returns: Database["public"]["Tables"]["lead_sessions"]["Row"][];
+      };
+      upsert_push_subscription: {
+        Args: { p_patient_session_id: string; p_subscription_ciphertext: string; p_endpoint_hash: string; p_expires_at: string | null };
+        Returns: string;
+      };
+      deactivate_push_subscription: {
+        Args: { p_patient_session_id: string; p_endpoint_hash: string };
+        Returns: boolean;
       };
     };
     Enums: {
