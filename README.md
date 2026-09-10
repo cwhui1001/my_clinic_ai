@@ -112,7 +112,7 @@ npm run lint
 npm run build
 ```
 
-The current suite contains 52 tests across 11 files. It covers attribution validation, guest-to-patient conversion contracts, consent, trust copy, redaction, deterministic and model-assisted risk policy, Living Memory mutation/provenance, escalation payload integrity, and RBAC/database contracts.
+The suite covers attribution validation, guest-to-patient conversion contracts, consent, trust copy, redaction, deterministic and model-assisted risk policy, Living Memory mutation/provenance, escalation payload integrity, and RBAC/database contracts. Scenario-named P0 tests live in `tests/scenarios/`.
 
 The tests are focused unit and SQL-contract tests. They do not replace hosted-Supabase integration, browser E2E, penetration, clinical-safety, accessibility, or legal review.
 
@@ -121,19 +121,28 @@ The tests are focused unit and SQL-contract tests. They do not replace hosted-Su
 The local redactor is `src/features/redaction/redact.ts`. It handles names expressed in supported contexts, Malaysian/Singaporean IC or ID formats, Malaysian phone numbers, and email addresses. Both guest and patient pipelines call it before any OpenAI request:
 
 ```text
-raw input -> encrypt clinical record -> local redaction -> leak assertion
-          -> minimum redacted context -> OpenAI (store: false)
+raw input -> deterministic multilingual emergency floor
+          -> persist a non-PHI idempotency reservation
+          -> local redaction + leak assertion (fail closed)
+          -> minimum redacted context -> OpenAI (store: false, explicit timeout)
+          -> max(deterministic risk, model risk)
+          -> deterministic output safety gate
+          -> seal encrypted raw record + complete the turn
 ```
 
-Raw message content is kept only as encrypted application data. Operational logs receive IDs, hashes, status, category counts, and error codes—not message text. If redaction or its leak assertion fails, the model is not called and the response fails closed to safe handoff copy.
+Raw message content is kept only as encrypted application data and is not written into the reservation row until all release gates finish. Operational logs use a runtime allowlist for UUID/SHA-256 identifiers and bounded codes; message text is not accepted. If redaction or its leak assertion fails, the model is not called and the response fails closed. A deterministic High still receives local 999 guidance even when redaction or the provider fails.
 
 Relevant files:
 
 - `src/features/redaction/redact.ts`: detection, replacement, and final leak assertion
+- `src/features/risk/emergency-rules.ts`: shared English, Malay, and Chinese deterministic emergency floor
+- `src/features/risk/output-safety.ts`: deterministic patient-facing diagnostic/reassurance gate
 - `src/features/guest-chat/service.ts`: guest orchestration
 - `src/features/patient-chat/pipeline.ts`: patient redaction, risk, model, and release gate
-- `src/server/openai/guest-response.ts` and `patient-response.ts`: server-only OpenAI boundary using `store: false`
-- `src/server/logging/audit.ts`: structured PHI-free audit events
+- `src/server/openai/guest-response.ts` and `patient-response.ts`: server-only OpenAI boundary using `store: false` and an abort deadline
+- `src/server/logging/audit.ts`: structured PHI-free audit events with runtime sanitisation
+- `supabase/migrations/202609100001_p0_safety_boundaries.sql`: non-PHI reservations and authenticated sealing
+- `supabase/migrations/202609100002_guest_retention_schedule.sql`: hourly guest-expiry scheduling
 
 ## How RBAC is enforced
 
@@ -171,8 +180,8 @@ Use only synthetic names, identifiers, contact details, and health scenarios.
 
 | Failure | Behavior |
 |---|---|
-| Redaction/leak assertion | Do not call OpenAI; persist only safe status metadata; offer handoff. |
-| Model timeout/API/schema failure | Fail conservatively to non-advisory safe copy and PHI-free model-run metadata. |
+| Redaction/leak assertion | Do not call OpenAI; fail closed. Preserve local emergency guidance when the raw-message floor is High. |
+| Model timeout/API/schema failure | Preserve the deterministic floor and return explicitly labelled, non-advisory safety-only copy with PHI-free metadata. |
 | Authentication outage or invalid session | Reject protected reads/mutations; do not expose patient or staff data. |
 | Database transaction failure | Do not display an uncommitted response; idempotency supports safe retry. |
 

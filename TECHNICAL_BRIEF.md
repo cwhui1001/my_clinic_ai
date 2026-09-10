@@ -17,8 +17,9 @@ Acquisition link / simulated channel
               v
  Next.js server
   |- validation, rate limits, idempotency
-  |- local PHI redaction and leak assertion
-  |- deterministic risk gate -> structured model proposal -> policy gate
+  |- raw deterministic multilingual emergency floor
+  |- local PHI redaction and leak assertion (fail closed)
+  |- redacted model proposal -> max(rule, model) -> output safety gate
   |- Living Memory and escalation payload builders
   `- authenticated, clinic-scoped data services
               |                         |
@@ -30,7 +31,7 @@ Acquisition link / simulated channel
 
 Four entry contracts are simulated: `staff_referral`, `social_comment`, `instagram_ad_click`, and `website_widget`. No real platform account is contacted. An opaque high-entropy recovery credential is stored in an HttpOnly cookie; only its hash is stored. Guest content is encrypted and unavailable to staff. Authentication is delayed until value is demonstrated, and clinic sharing remains a separate explicit consent action.
 
-Patient messages pass through two independent safety controls. First, deterministic rules immediately classify mandatory emergency phrases and conservative variants; a deterministic High cannot be downgraded. Second, locally redacted text may be sent for a structured model proposal. The server releases generated content only when the result is Low-risk, confident, non-diagnostic, and grounded in a valid curated citation. Medium, High, uncertainty, timeout, invalid schema, unsafe wording, or unresolved citations produce safe non-advisory copy and an escalation requirement. Raw text is never written to operational logs.
+Patient messages pass through independent safety controls in a fixed order. Shared English, Malay, and Chinese deterministic rules assess untouched text first; the LLM, redaction, parsing failure, timeout, and outage cannot lower that floor. A non-PHI placeholder reserves idempotency, then locally redacted text may be sent for a structured model proposal under an explicit abort deadline. The effective result is `max(deterministicRisk, modelRisk)`. The server releases generated content only when it is Low-risk, confident, non-diagnostic, grounded in a valid curated citation, and accepted by a deterministic output gate. Medium, High, uncertainty, timeout, invalid schema, unsafe wording, or unresolved citations produce local non-advisory copy and an escalation requirement. Provider failure is labelled as safety-only degraded mode. Only after these gates does the server seal the encrypted raw record and complete the turn. Raw text is never accepted by operational logging.
 
 RBAC is defense in depth. Supabase Auth supplies `auth.uid()`. RLS enforces patient ownership and active same-clinic staff membership plus current healthcare-sharing consent. Direct table mutations are revoked; narrow database functions validate identity, role, clinic, consent, record state, and provenance. Next.js repeats resource checks before returning minimal views. Staff can acknowledge; only Nurse and Clinician memberships can author a protected clinical response or close a responded escalation.
 
