@@ -42,4 +42,16 @@ describe("test_scenario_01_response_delivery", () => {
     expect(deliveryService).toContain('"no_subscription"');
     expect(deliveryService).toContain('"transport_unavailable"');
   });
+
+  it("retains the submitted form across the asynchronous response request", () => {
+    const actions = readFileSync(resolve("app/components/escalation-actions.tsx"), "utf8");
+    const capture = actions.indexOf("const formElement = event.currentTarget");
+    const request = actions.indexOf("await fetch", capture);
+    const reset = actions.indexOf("formElement.reset()", request);
+
+    expect(capture).toBeGreaterThan(-1);
+    expect(capture).toBeLessThan(request);
+    expect(request).toBeLessThan(reset);
+    expect(actions).not.toContain("event.currentTarget.reset()");
+  });
 });

@@ -20,23 +20,30 @@ export function EscalationActions({ escalationId, status, canRespond }: { escala
 
   async function respond(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setPending(true);
     setError(null);
     setDelivery(null);
-    const form = new FormData(event.currentTarget);
-    const response = await fetch(`/api/staff/escalations/${escalationId}/responses`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: String(form.get("content") || "") }),
-    });
-    const payload = await response.json() as { notificationStatus?: string };
-    if (!response.ok) setError("The protected response could not be recorded.");
-    else {
-      event.currentTarget.reset();
-      setDelivery(notificationMessage(payload.notificationStatus));
-      router.refresh();
+    const form = new FormData(formElement);
+
+    try {
+      const response = await fetch(`/api/staff/escalations/${escalationId}/responses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: String(form.get("content") || "") }),
+      });
+      const payload = await response.json().catch(() => ({})) as { notificationStatus?: string };
+      if (!response.ok) setError("The protected response could not be recorded.");
+      else {
+        formElement.reset();
+        setDelivery(notificationMessage(payload.notificationStatus));
+        router.refresh();
+      }
+    } catch {
+      setError("The protected response could not be recorded.");
+    } finally {
+      setPending(false);
     }
-    setPending(false);
   }
 
   async function close() {
