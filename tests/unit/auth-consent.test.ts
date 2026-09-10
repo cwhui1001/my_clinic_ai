@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { authCredentialsSchema, signupCredentialsSchema } from "../../src/features/auth/schema";
-import { HEALTHCARE_CONSENT_NOTICE_VERSION, HEALTHCARE_CONSENT_POLICY_VERSION } from "../../src/features/consent/constants";
+import { authCredentialsSchema, phoneOtpStartSchema, phoneOtpVerifySchema, signupCredentialsSchema } from "../../src/features/auth/schema";
+import { HEALTHCARE_CONSENT_NOTICE_VERSION, HEALTHCARE_CONSENT_POLICY_VERSION, MARKETING_CONSENT_NOTICE_VERSION, MARKETING_CONSENT_POLICY_VERSION } from "../../src/features/consent/constants";
 import { conversionRequestSchema, normalizePhone } from "../../src/features/consent/schema";
 
 describe("authentication input", () => {
@@ -9,6 +9,12 @@ describe("authentication input", () => {
     expect(authCredentialsSchema.safeParse({ email: "patient@example.com", password: "carepath1" }).success).toBe(true);
     expect(authCredentialsSchema.safeParse({ email: "patient@example.com", password: "allletters" }).success).toBe(false);
     expect(authCredentialsSchema.safeParse({ email: "not-an-email", password: "carepath1" }).success).toBe(false);
+  });
+
+  it("supports a real phone OTP path without treating social handles as authentication", () => {
+    expect(phoneOtpStartSchema.safeParse({ phone: "+60123456789" }).success).toBe(true);
+    expect(phoneOtpVerifySchema.safeParse({ phone: "+60123456789", token: "123456" }).success).toBe(true);
+    expect(phoneOtpVerifySchema.safeParse({ phone: "@social_user", token: "123456" }).success).toBe(false);
   });
 
   it("requires phone collection at signup and rejects extra fields", () => {
@@ -24,9 +30,9 @@ describe("conversion consent", () => {
   });
 
   it("requires explicit true consent and versioned evidence", () => {
-    const base = { phone: "+60123456789", policyVersion: HEALTHCARE_CONSENT_POLICY_VERSION, noticeVersion: HEALTHCARE_CONSENT_NOTICE_VERSION };
+    const base = { phone: "+60123456789", policyVersion: HEALTHCARE_CONSENT_POLICY_VERSION, noticeVersion: HEALTHCARE_CONSENT_NOTICE_VERSION, marketingConsent: false, marketingPolicyVersion: MARKETING_CONSENT_POLICY_VERSION, marketingNoticeVersion: MARKETING_CONSENT_NOTICE_VERSION };
     expect(conversionRequestSchema.safeParse({ ...base, healthcareConsent: true }).success).toBe(true);
     expect(conversionRequestSchema.safeParse({ ...base, healthcareConsent: false }).success).toBe(false);
-    expect(conversionRequestSchema.safeParse({ ...base, healthcareConsent: true, marketingConsent: true }).success).toBe(false);
+    expect(conversionRequestSchema.safeParse({ ...base, healthcareConsent: true, marketingConsent: true }).success).toBe(true);
   });
 });
