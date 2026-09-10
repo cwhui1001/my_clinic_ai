@@ -1,7 +1,8 @@
 # Nightingale MVP Architecture
 
-Status: Proposed architecture; no implementation yet  
-Primary sources: `2026 48 Hour Build_ Nightingale Candidate Brief.pdf` and `REQUIREMENTS.md`  
+Status: Implemented MVP architecture, adversarially audited 11 September 2026
+
+Primary sources: `2026 48 Hour Build_ Nightingale Candidate Brief.pdf`, `48HR Feedback_ Nightingale Candidate Brief.pdf`, `REQUIREMENTS.md`, and `docs/FEEDBACK_GAP_ANALYSIS.md`
 Target stack: Next.js 16 + TypeScript, Tailwind CSS, Supabase PostgreSQL, Supabase Auth, OpenAI API
 
 ## 1. Goals and architectural decisions
@@ -22,7 +23,7 @@ Primary design goals:
 |---|---|---|
 | Deployment | One Next.js application and one Supabase project | Smallest production-credible unit; no distributed transaction or service coordination. |
 | Next.js model | App Router, Server Components for reads, Client Components only for interactive UI, Route Handlers for mutation/chat boundaries | Keeps secrets and clinical data processing server-side. |
-| Data access | A `server-only` Data Access Layer (DAL) is the only application module that queries clinical tables | Centralizes authorization and DTO minimization. |
+| Data access | `server-only` feature services own clinical queries and DTO construction | Keeps database access out of Client Components; RLS and narrow RPCs remain the primary authorization boundary. |
 | Browser database access | Browser uses Supabase for Auth only; clinical and guest data go through the Next.js server | Easier to audit and prevents broad client access to sensitive records. RLS still protects database access. |
 | Messaging | One `messages` table supports guest and patient sessions | Original guest messages do not need to be copied, so provenance stays intact. |
 | AI state | Stateless OpenAI Responses API calls with `store: false`; application supplies minimum redacted context | Supabase remains the source of truth and external persistence is minimized. |
@@ -31,7 +32,8 @@ Primary design goals:
 | Memory | Current fact identity plus append-only fact revisions | Corrections update the live profile without destroying prior provenance. |
 | Conversion | One atomic PostgreSQL function/RPC | Prevents partial consent, patient, session, attribution, or event creation. |
 | Guest recovery | Opaque high-entropy token in a Secure, HttpOnly cookie; only a hash is stored | Avoids exposing a database identifier as authority. |
-| Guest retention | Proposed default: seven days for unconverted guest content | Provides recovery while limiting exposure. This remains a product decision. |
+| Guest retention | Configured TTL for unconverted guest content plus database-native hourly cleanup | Expired guest messages/contact ciphertext are removed and a PHI-free run ledger is written; hosted scheduler execution still needs deployment evidence. |
+| Re-engagement | Optional encrypted Web Push subscription, PHI-free outbox/attempt ledger, and authenticated exact-conversation return | Real transport exists in code but depends on VAPID/browser permission and has no background retry worker. |
 | PWA caching | Cache static shell assets only; never cache clinical API responses, messages, or profiles offline | A PWA must not leave recoverable PHI in browser caches. |
 | Realtime | Not required for MVP; use request/response plus refresh/polling where needed | Avoids extra authorization and synchronization complexity. |
 | Knowledge/citations | Curated, versioned source records in PostgreSQL; no live web-search tool in the patient pipeline | Makes citations testable and prevents uncontrolled external disclosure. |
@@ -72,7 +74,7 @@ Supabase Auth/PostgreSQL     OpenAI Responses API
 
 ### Request boundaries
 
-- Server Components call the DAL directly for initial page reads. They do not call the application's own Route Handlers.
+- Server Components call server-only feature services directly for initial page reads. They do not call the application's own Route Handlers.
 - Interactive clients call Route Handlers for chat turns, conversion, escalation, referral creation, and simulated acquisition/webhooks.
 - Every Route Handler is treated as public: validate content type, body size, shape, session, role, clinic membership, and resource ownership.
 - `proxy.ts` may refresh Supabase Auth cookies and perform optimistic redirects. It is not an authorization boundary.
@@ -84,13 +86,13 @@ Supabase Auth/PostgreSQL     OpenAI Responses API
 - Public/guest: acquisition landing, guest conversation, secure-continuation invitation, recovery.
 - Auth: signup/login, callback, phone collection, consent.
 - Patient: messenger, live profile, escalation state.
-- Staff: warm leads, referral-link creation, escalation queue and review.
+- Staff: consented escalation queue and review. Warm-lead ranking, referral-link authoring, and funnel analytics are not implemented.
 
 ### PWA behavior
 
 - Provide a web manifest, icons, standalone display mode, responsive Tailwind layout, and HTTPS deployment.
 - Do not promise offline clinical access in the MVP.
-- If a service worker is added, its allowlist is limited to versioned static assets. Protected pages, RSC payloads, `/api/**`, and Supabase responses use network-only/no-store behavior.
+- The service worker handles Web Push display/click only and performs no fetch interception or clinical-data caching. Protected pages, RSC payloads, `/api/**`, and Supabase responses use network-only/no-store behavior.
 - Protected responses use `Cache-Control: private, no-store` and should not be prefetched into a shared cache.
 
 ## 3. Database design principles
@@ -633,17 +635,20 @@ The source brief does not distinguish Staff, Nurse, and Clinician permissions pr
 
 ## 12. PHI redaction pipeline
 
-Redaction happens locally in the Next.js server before any OpenAI request or transactional email construction.
+Redaction happens locally in the Next.js server before any OpenAI request. There is no transactional-email transport in this MVP.
 
 ```text
 Inbound text
   → validate type/size
-  → encrypt and persist as clinical application data
+  → deterministic risk floor on untouched text
+  → persist only a non-PHI idempotency reservation
   → deterministic/local PHI detection
   → replace matches with [REDACTED]
   → leak scan and redaction assertion
   → minimum-context builder
   → OpenAI request with store=false
+  → max(rule risk, model risk) and output safety gate
+  → encrypt/seal raw application record and persist structured result
 ```
 
 ### Detection layers
@@ -661,14 +666,14 @@ The replacement token is consistently `[REDACTED]` so the required test is unamb
 - Operational records store redaction status/version, category counts, input hash, duration, and error code only.
 - Redacted model context is minimized to the current turn, necessary recent turns, current fact projection, and approved knowledge excerpts.
 - OpenAI response/conversation state is not used as the clinical record.
-- Transactional earned-email content passes through the same redaction assertion before sending.
+- No earned-email promise or sender exists; the UI does not report email delivery.
 
 ### Failure behavior
 
 Recommended MVP decision: fail closed. If the redactor throws, returns an invalid result, or the leak assertion fails:
 
 - Do not call OpenAI.
-- Do not send email.
+- Do not call any external notification or model provider with the unsafe text.
 - Mark the message `blocked` with a PHI-free error code.
 - Show a safe message explaining that automated processing is temporarily unavailable and offer the clinic handoff.
 - Emit a PHI-free audit event.
@@ -864,7 +869,7 @@ Folder rules:
 
 - `app/**/route.ts` validates HTTP concerns and delegates; it contains no domain logic.
 - `features/*` contains domain types, schemas, and orchestration grouped by requirement area.
-- `server/dal` is `server-only` and owns queries, resource authorization, and DTO construction.
+- `src/features/**/service.ts` modules are `server-only` and own queries, resource authorization, and DTO construction.
 - `server/openai`, `server/crypto`, and privileged Supabase clients are `server-only`.
 - Client Components never import database rows, OpenAI types containing internals, secrets, or protected domain entities.
 - Configurable channel and risk rules live in one declarative location, not UI/handler conditionals.
@@ -874,7 +879,7 @@ Folder rules:
 ### Build now
 
 - Four simulated contracts: `staff_referral`, `social_comment`, `instagram_ad_click`, and `website_widget`.
-- Guest value, attribution, recovery, conversion, consent, patient chat, deterministic risk, redaction, memory mutation, escalation, warm leads, metrics, required tests, manifest, and mobile UI.
+- Guest value, attribution, recovery, conversion, separate consent, patient chat, deterministic risk, redaction, append-only memory mutation, escalation, clinician review/reply, optional Web Push, scenario tests, manifest, and mobile UI.
 - RLS and grants from the first migration, not as final polish.
 - Curated citation records sufficient to prove resolvable grounding.
 
@@ -883,13 +888,13 @@ The two additional simulated contracts are a recommended scope choice, not a sou
 ### Defer
 
 - Real Meta/TikTok/WhatsApp integration.
-- Full dashboard and composite scoring/decay.
+- Funnel-statistics dashboard, warm-lead ranking, and composite scoring/decay.
 - Voice recording and transcription.
-- Push notifications and offline clinical data.
+- Offline clinical data and background notification retries. One immediate optional Web Push attempt is implemented.
 - Contact-point change workflow.
-- Conflict detection beyond the required mutation chain.
+- Authorized contradiction-resolution workflow; detection and clinician-visible flags exist for allergy, medication-state, and dosage conflicts.
 - Marketing re-engagement lifecycle.
-- Background job infrastructure; use explicit request/response workflows and a scheduled Supabase cleanup task only if time permits.
+- General background-worker infrastructure. Guest cleanup uses `pg_cron`, but hosted execution/monitoring evidence is still required.
 
 ## 17. Decisions still requiring confirmation
 
@@ -908,6 +913,36 @@ These notes validate stack behavior; they do not replace the candidate brief or 
 
 - Next.js 16's bundled security guidance recommends a server-only DAL, minimal DTOs, and authorization inside every Server Action/Route Handler rather than relying on layouts or optimistic routing.
 - Supabase Auth SSR uses cookie-based sessions. The current `@supabase/ssr` helper is recommended by Supabase but documented as beta, so its version should be pinned.
+
+## 19. Final implementation reality
+
+The executable safety order is:
+
+```text
+raw message
+  -> deterministic EN/MS/ZH risk floor
+  -> non-PHI idempotency reservation
+  -> local PHI/MyKad redaction and leak assertion
+  -> fail closed when redaction cannot be verified
+  -> redacted provider call with explicit timeout and store=false
+  -> max(deterministic risk, model risk)
+  -> deterministic patient-output safety gate
+  -> encrypted raw-message seal and structured persistence
+```
+
+Tenant authority comes from the authenticated Supabase session. Patients are authorized by `patients.auth_user_id = auth.uid()`. Staff are authorized through the shared `has_active_clinic_membership` and `has_consented_patient_access` database functions; protected routes never treat a request-supplied clinic identifier as authority. Service-role follow-up reads occur only after a session-bound RLS/RPC operation establishes the resource and clinic, then constrain the privileged query to that trusted scope.
+
+Living Memory uses an immutable MemoryItem identity plus append-only MemoryRevisions. A correction inserts a new revision whose `supersedes_revision_id` points to the former state; the MemoryItem's current pointer changes but history does not. Each revision snapshots the encrypted source and source hash. Allergy-presence, medication-state, and dosage conflicts append a visible conflict record rather than silently choosing a safe answer.
+
+The final audit deliberately leaves these boundaries open:
+
+- Hosted RLS, cleanup-cron, conversion/bootstrap, memory-trigger, and cold-handoff integration suites have not all been executed against the submitted Supabase project.
+- Web Push is a real optional transport, but VAPID/browser subscription/device delivery and retries are not proven. SMS, WhatsApp, and transactional email are absent.
+- `funnel_events` are persisted, but no live statistics query/dashboard or conversion zero-state exists.
+- `messages` has nullable audio reference fields, but there is no audio artifact table, object-storage policy, upload/transcription route, recording consent, or voice test. Voice readiness is therefore partial.
+- `channel_rules` is the declarative source for opening strategy and is queried by clinic/source/identity/time/priority, but the seed uses the `any` time bucket and no automated test proves every dimension changes rendered output.
+- Provider and infrastructure retention/logging terms cannot be proven from application code; the repository uses synthetic data only.
+
+The authoritative final 21-scenario statuses, test evidence, and remaining weaknesses are in `docs/FEEDBACK_GAP_ANALYSIS.md` under “Final Adversarial Audit — 11 September 2026.”
 - Supabase RLS combines table grants with policies; both must be configured. Secret/service credentials bypass RLS and must never reach the browser.
 - OpenAI's Responses API supports stateless operation with `store: false` and structured output. Application state and abuse-monitoring retention are separate concerns; the MVP sends redacted synthetic content only and does not claim that `store: false` alone establishes healthcare compliance.
-

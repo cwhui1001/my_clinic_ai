@@ -133,6 +133,19 @@ The suite covers attribution validation, guest-to-patient conversion contracts, 
 
 The tests are focused unit and SQL-contract tests. They do not replace hosted-Supabase integration, browser E2E, penetration, clinical-safety, accessibility, or legal review.
 
+### Final feedback audit status
+
+The adversarial 11 September 2026 audit classifies **6 scenarios SURVIVES, 15 PARTIAL, and 0 DOES NOT**. The detailed scenario-by-scenario evidence and exact execution paths are in `docs/FEEDBACK_GAP_ANALYSIS.md`. The lower score is deliberate: a SQL migration inspected by a test is not counted as an executed hosted database flow.
+
+Final local verification:
+
+- `npm test`: 123 passed, 8 skipped across 36 files. The skipped tests are the two opt-in hosted Supabase suites.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed.
+- `npm run build`: passed with Next.js 16.3.4.
+
+Important remaining gaps are: no live funnel-statistics query/dashboard; phone OTP is not operational in the submitted hosted environment; Web Push has no recorded device-delivery proof or retry worker; hosted tenant/guest-boundary/cleanup tests were not run; Living Memory, conversion, contradiction, and cold-handoff database paths lack hosted integration execution; provider/infrastructure retention is not independently verified; and voice/channel-rule readiness is only partial.
+
 After applying all migrations to a non-production hosted Supabase project, run the opt-in boundary test with synthetic fixtures:
 
 ```powershell
