@@ -1,6 +1,8 @@
 import type { MemoryKind, MemoryStatus, ResponseConfidence, RiskLevel } from "@/src/types/database";
+import { findEmergencyMatches } from "./emergency-rules";
+import { isPatientFacingOutputSafe } from "./output-safety";
 
-export const RISK_PIPELINE_VERSION = "patient-risk-v1";
+export const RISK_PIPELINE_VERSION = "patient-risk-v2-max-floor-en-ms-zh";
 export const PATIENT_PROMPT_VERSION = "patient-safe-response-memory-v2";
 
 type RiskRule = {
@@ -10,12 +12,6 @@ type RiskRule = {
 };
 
 const RISK_RULES: RiskRule[] = [
-  { id: "crushing_chest_pain", level: "high", pattern: /\b(?:crushing|severe)\s+chest\s+pain\b/i },
-  { id: "difficulty_breathing", level: "high", pattern: /\b(?:difficulty|trouble|unable to|cannot|can't)\s+(?:breathing|breathe)\b/i },
-  { id: "heavy_bleeding", level: "high", pattern: /\b(?:heavy|severe|uncontrolled)\s+bleeding\b/i },
-  { id: "self_harm", level: "high", pattern: /\b(?:want|plan|going)\s+to\s+(?:hurt|harm|kill)\s+myself\b/i },
-  { id: "chest_pressure", level: "high", pattern: /\bchest\s+(?:pressure|pain)\b.*\b(?:sweat|breath|faint|jaw|arm)\w*\b/i },
-  { id: "cannot_stay_awake", level: "high", pattern: /\b(?:unconscious|unresponsive|cannot stay awake|can't stay awake)\b/i },
   { id: "ambiguous_chest_symptom", level: "medium", pattern: /\b(?:my\s+)?chest\s+(?:feels?\s+funny|discomfort|tightness|ache)\b/i },
   { id: "nonsevere_bleeding", level: "medium", pattern: /\bbleed(?:ing)?\b/i },
   { id: "faint_or_dizzy", level: "medium", pattern: /\b(?:faint(?:ed|ing)?|very dizzy|lightheaded)\b/i },
@@ -60,9 +56,10 @@ export type RiskDecision = {
 };
 
 export function assessDeterministicRisk(text: string): DeterministicRisk | null {
-  const matches = RISK_RULES.filter((rule) => rule.pattern.test(text));
-  if (!matches.length) return null;
-  const level = matches.some((rule) => rule.level === "high") ? "high" : "medium";
+  const emergencyMatches = findEmergencyMatches(text);
+  const policyMatches = RISK_RULES.filter((rule) => rule.pattern.test(text));
+  if (!emergencyMatches.length && !policyMatches.length) return null;
+  const level = emergencyMatches.length ? "high" : "medium";
   return {
     level,
     reason:
@@ -70,7 +67,31 @@ export function assessDeterministicRisk(text: string): DeterministicRisk | null 
         ? "A deterministic urgent-symptom rule matched."
         : "The message needs human assessment because it is ambiguous or requests clinical judgment.",
     confidence: "high",
-    ruleMatches: matches.map((rule) => rule.id),
+    ruleMatches: [
+      ...emergencyMatches.map((rule) => rule.id),
+      ...policyMatches.map((rule) => rule.id),
+    ],
+  };
+}
+
+const RISK_ORDER: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2 };
+
+export function maxRiskDecision(
+  deterministic: DeterministicRisk | null,
+  candidate: RiskDecision,
+): RiskDecision {
+  if (!deterministic) return candidate;
+  const deterministicWins =
+    RISK_ORDER[deterministic.level] >= RISK_ORDER[candidate.level];
+  const level = deterministicWins ? deterministic.level : candidate.level;
+
+  return {
+    level,
+    reason: deterministicWins ? deterministic.reason : candidate.reason,
+    confidence: deterministicWins ? deterministic.confidence : candidate.confidence,
+    escalationRequired: level !== "low",
+    ruleMatches: [...new Set([...deterministic.ruleMatches, ...candidate.ruleMatches])],
+    source: deterministicWins ? "deterministic" : candidate.source,
   };
 }
 
@@ -119,17 +140,8 @@ export function fallbackRisk(reason: "model_failure" | "redaction_failure"): Ris
   };
 }
 
-const UNSAFE_PATTERNS = [
-  /\byou (?:definitely |probably )?have\b/i,
-  /\byou are suffering from\b/i,
-  /\b(?:start|stop|increase|decrease|double|change) (?:your )?(?:dose|medication|medicine)\b/i,
-  /\bthere(?:'s| is) nothing to worry about\b/i,
-  /\b(?:not serious|not dangerous|you(?:'ll| will) be fine|wait and see)\b/i,
-  /\btreatment plan\b/i,
-];
-
 export function isPatientResponseSafe(text: string) {
-  return !UNSAFE_PATTERNS.some((pattern) => pattern.test(text));
+  return isPatientFacingOutputSafe(text);
 }
 
 export const HIGH_RISK_RESPONSE =
@@ -140,3 +152,6 @@ export const MEDIUM_RISK_RESPONSE =
 
 export const REDACTION_FAILURE_RESPONSE =
   "I couldn't verify that your message was safe for automated processing, so I have not sent it to the AI or provided medical guidance. This needs human review through the clinic handoff path.";
+
+export const DEGRADED_MODE_RESPONSE =
+  "Nightingale's AI provider is temporarily unavailable, so safety-only mode is active. I can't assess, diagnose, or provide clinical advice. This needs review by the clinic through Send to Clinic. If you think this may be an emergency, exit Nightingale and dial 999 now.";

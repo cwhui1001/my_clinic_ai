@@ -1,24 +1,11 @@
 import type { ValueEventType } from "@/src/types/database";
+import { findEmergencyRule } from "../risk/emergency-rules";
+import { isPatientFacingOutputSafe } from "../risk/output-safety";
 
 export const GUEST_CHAT_PROMPT_VERSION = "guest-chat-v1";
 
-const EMERGENCY_RULES = [
-  { id: "crushing_chest_pain", pattern: /\b(crushing|severe)\s+chest\s+pain\b/i },
-  { id: "difficulty_breathing", pattern: /\b(difficulty|trouble|can(?:not|'t))\s+(breathing|breathe)\b/i },
-  { id: "heavy_bleeding", pattern: /\b(heavy|severe|uncontrolled)\s+bleeding\b/i },
-  { id: "self_harm", pattern: /\b(want|plan|going)\s+to\s+(hurt|harm|kill)\s+myself\b/i },
-] as const;
-
 const CLINICAL_INTENT_PATTERN =
   /\b(symptom|pain|bleed|bleeding|pregnan|period|cycle|fever|nausea|dizzy|headache|rash|medication|medicine|dose|allerg|diagnos|treatment|ivf|fertility|egg freezing|embryo|infection|chest|breath)\w*\b/i;
-
-const UNSAFE_OUTPUT_PATTERNS = [
-  /\byou (?:definitely )?have (?:an? )?(?:infection|condition|disease|disorder|syndrome|cancer|pregnancy)\b/i,
-  /\byou are suffering from\b/i,
-  /\b(?:start|stop|increase|decrease|double|change) (?:your )?(?:dose|medication|medicine)\b/i,
-  /\bthere(?:'s| is) nothing to worry about\b/i,
-  /\byou(?:'ll| will) be fine\b/i,
-];
 
 export type GuestIntent =
   | "emergency"
@@ -29,9 +16,7 @@ export type GuestIntent =
   | "availability"
   | "general_education";
 
-export function findEmergencyRule(text: string) {
-  return EMERGENCY_RULES.find((rule) => rule.pattern.test(text))?.id ?? null;
-}
+export { findEmergencyRule };
 
 export function classifyGuestIntent(text: string): GuestIntent {
   if (findEmergencyRule(text)) return "emergency";
@@ -66,7 +51,7 @@ export function requiresSecureContinue(intent: GuestIntent) {
 }
 
 export function isGuestResponseSafe(text: string) {
-  return !UNSAFE_OUTPUT_PATTERNS.some((pattern) => pattern.test(text));
+  return isPatientFacingOutputSafe(text);
 }
 
 export function buildTrustResponse(clinicName: string) {
@@ -78,3 +63,10 @@ export const EMERGENCY_RESPONSE =
 
 export const SAFE_FAILURE_RESPONSE =
   "I’m unable to process that safely right now, so I won’t offer medical guidance. You can try again without personal identifiers or choose secure continuation when it becomes available.";
+
+export const GUEST_DEGRADED_MODE_RESPONSE =
+  "Nightingale's AI provider is temporarily unavailable, so safety-only mode is active. I can't assess, diagnose, or provide medical guidance. You can retry or choose secure continuation for human follow-up. If this may be an emergency, exit Nightingale and dial 999 now.";
+
+export function guestRedactionFailureResponse(intent: GuestIntent) {
+  return intent === "emergency" ? EMERGENCY_RESPONSE : SAFE_FAILURE_RESPONSE;
+}

@@ -4,9 +4,9 @@ import type { PatientMessageRequest } from "@/src/features/patient-chat/schema";
 import { currentFactsFromProfile, loadMemoryProfileForSession, toEncryptedMemoryPayload } from "@/src/features/memory/service";
 import { loadPatientEscalations } from "@/src/features/escalation/service";
 import { runPatientSafetyPipeline, type PipelineKnowledgeSource } from "@/src/features/patient-chat/pipeline";
-import { PATIENT_PROMPT_VERSION, RISK_PIPELINE_VERSION } from "@/src/features/risk/policy";
+import { assessDeterministicRisk, PATIENT_PROMPT_VERSION, RISK_PIPELINE_VERSION } from "@/src/features/risk/policy";
 import { REDACTION_VERSION } from "@/src/features/redaction/redact";
-import { encryptProtectedContent, decryptProtectedContent, hashProtectedContent } from "@/src/server/crypto/protected-content";
+import { encryptProtectedContent, decryptProtectedContent, hashProtectedContent, SAFETY_RESERVATION_PLACEHOLDER } from "@/src/server/crypto/protected-content";
 import { writeAuditLog } from "@/src/server/logging/audit";
 import { createPatientModelResponse } from "@/src/server/openai/patient-response";
 import { createAdminClient } from "@/src/server/supabase/admin";
@@ -36,13 +36,16 @@ export async function createPatientTurn(
   patientSessionId: string,
   input: PatientMessageRequest,
 ): Promise<PatientReplyDto> {
+  // Compute the floor from the untouched request before any persistence,
+  // redaction, model call, or structured logging.
+  const deterministicRisk = assessDeterministicRisk(input.message);
   const supabase = await createSupabaseServerClient();
   const { data: appended, error: appendError } = await supabase
     .rpc("append_patient_message", {
       p_patient_session_id: patientSessionId,
       p_client_message_id: input.clientMessageId,
-      p_content_ciphertext: encryptProtectedContent(input.message),
-      p_content_sha256: hashProtectedContent(input.message),
+      p_content_ciphertext: encryptProtectedContent(SAFETY_RESERVATION_PLACEHOLDER),
+      p_content_sha256: hashProtectedContent(SAFETY_RESERVATION_PLACEHOLDER),
     })
     .single();
 
@@ -70,6 +73,7 @@ export async function createPatientTurn(
     sources,
     sourceMessageId: appended.id,
     currentMemory,
+    deterministicRisk,
     generate: ({ redactedMessage, sources: approvedSources }) =>
       createPatientModelResponse({
         redactedMessage,
@@ -97,6 +101,17 @@ export async function createPatientTurn(
   const model = pipeline.model?.model ?? (isModelFailure ? process.env.OPENAI_MODEL || "unconfigured" : "deterministic-risk-gate");
   const redactedInputHash = hashProtectedContent(pipeline.redaction?.text ?? "[REDACTION_FAILED]");
   const assessedAt = new Date().toISOString();
+
+  const protectedMessage = encryptProtectedContent(input.message);
+  const { data: sealed, error: sealError } = await supabase
+    .rpc("seal_patient_message", {
+      p_patient_session_id: patientSessionId,
+      p_source_message_id: appended.id,
+      p_content_ciphertext: protectedMessage,
+      p_content_sha256: hashProtectedContent(input.message),
+    })
+    .single();
+  if (sealError || !sealed) throw mapDatabaseError(sealError?.code);
 
   const { data: completed, error: completeError } = await admin
     .rpc("complete_patient_turn_with_memory", {
@@ -142,7 +157,7 @@ export async function createPatientTurn(
     outcome: "success",
     resourceId: appended.id,
   });
-  return loadReply(appended, completed);
+  return loadReply(sealed, completed);
 }
 
 async function loadExistingReply(patientMessage: MessageRow) {

@@ -8,7 +8,10 @@ import {
   buildTrustResponse,
   classifyGuestIntent,
   EMERGENCY_RESPONSE,
+  findEmergencyRule,
+  GUEST_DEGRADED_MODE_RESPONSE,
   GUEST_CHAT_PROMPT_VERSION,
+  guestRedactionFailureResponse,
   isGuestResponseSafe,
   requiresSecureContinue,
   SAFE_FAILURE_RESPONSE,
@@ -28,6 +31,7 @@ import {
   decryptProtectedContent,
   encryptProtectedContent,
   hashProtectedContent,
+  SAFETY_RESERVATION_PLACEHOLDER,
 } from "@/src/server/crypto/protected-content";
 import { hashGuestToken } from "@/src/server/crypto/guest-token";
 import { createAdminClient } from "@/src/server/supabase/admin";
@@ -175,6 +179,10 @@ export async function createGuestTurn(
   recoveryToken: string,
   input: GuestMessageRequest,
 ): Promise<GuestReplyDto> {
+  // Assess the raw message before the database turn is reserved and before
+  // redaction can alter clinical meaning.
+  const emergencyRule = findEmergencyRule(input.message);
+  const intent = emergencyRule ? "emergency" : classifyGuestIntent(input.message);
   const session = await resolveGuestSession(recoveryToken);
   const tokenHash = hashGuestToken(recoveryToken);
   const supabase = createAdminClient();
@@ -182,8 +190,8 @@ export async function createGuestTurn(
     .rpc("append_guest_message", {
       p_recovery_token_hash: tokenHash,
       p_client_message_id: input.clientMessageId,
-      p_content_ciphertext: encryptProtectedContent(input.message),
-      p_content_sha256: hashProtectedContent(input.message),
+      p_content_ciphertext: encryptProtectedContent(SAFETY_RESERVATION_PLACEHOLDER),
+      p_content_sha256: hashProtectedContent(SAFETY_RESERVATION_PLACEHOLDER),
     })
     .single();
 
@@ -200,7 +208,6 @@ export async function createGuestTurn(
   }
 
   const profile = await getClinicProfile(session.clinic.id);
-  const intent = classifyGuestIntent(input.message);
   let answer = localAnswer(intent, session.clinic.name, profile);
   let valueType: ValueEventType | null = valueTypeForIntent(intent);
   let sourceStatus: MessageStatus = "completed";
@@ -251,10 +258,9 @@ export async function createGuestTurn(
       } catch (error) {
         modelStatus = "failed";
         errorCode = error instanceof GuestModelError ? error.code : "provider";
-        answer =
-          intent === "clinical_summary"
-            ? `A summary you can share with the clinic: “${redactedMessage.text.slice(0, 185)}”`
-            : SAFE_FAILURE_RESPONSE;
+        answer = intent === "clinical_summary"
+          ? `${GUEST_DEGRADED_MODE_RESPONSE}\n\nRedacted note for human follow-up: “${redactedMessage.text.slice(0, 185)}”`
+          : GUEST_DEGRADED_MODE_RESPONSE;
         if (intent !== "clinical_summary") valueType = null;
       }
     }
@@ -270,7 +276,7 @@ export async function createGuestTurn(
       answer = safeAnswer;
     }
   } catch {
-    answer = SAFE_FAILURE_RESPONSE;
+    answer = guestRedactionFailureResponse(intent);
     valueType = null;
     sourceStatus = "blocked";
     redactionStatus = "failed";
@@ -280,6 +286,17 @@ export async function createGuestTurn(
     model = "redaction-gate";
     errorCode = "redaction_failed";
   }
+
+  const protectedMessage = encryptProtectedContent(input.message);
+  const { data: sealed, error: sealError } = await supabase
+    .rpc("seal_guest_message", {
+      p_recovery_token_hash: tokenHash,
+      p_source_message_id: appended.id,
+      p_content_ciphertext: protectedMessage,
+      p_content_sha256: hashProtectedContent(input.message),
+    })
+    .single();
+  if (sealError || !sealed) throw mapDatabaseError(sealError?.code);
 
   const { data: completed, error: completeError } = await supabase
     .rpc("complete_guest_turn", {
@@ -306,7 +323,7 @@ export async function createGuestTurn(
 
   if (completeError || !completed) throw mapDatabaseError(completeError?.code);
   return {
-    guestMessage: toMessageDto({ ...appended, status: sourceStatus }),
+    guestMessage: toMessageDto({ ...sealed, status: sourceStatus }),
     assistantMessage: toMessageDto(completed),
     valueType,
   };

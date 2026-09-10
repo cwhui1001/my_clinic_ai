@@ -220,6 +220,7 @@ export type Database = {
           status: MessageStatus;
           content_ciphertext: string;
           content_sha256: string;
+          content_sealed: boolean;
           client_message_id: string | null;
           in_reply_to_message_id: string | null;
           sequence_number: number;
@@ -240,6 +241,7 @@ export type Database = {
           status: MessageStatus;
           content_ciphertext: string;
           content_sha256: string;
+          content_sealed?: boolean;
           client_message_id?: string | null;
           in_reply_to_message_id?: string | null;
           sequence_number: number;
@@ -688,6 +690,15 @@ export type Database = {
         };
         Returns: Database["public"]["Tables"]["messages"]["Row"][];
       };
+      seal_guest_message: {
+        Args: {
+          p_recovery_token_hash: string;
+          p_source_message_id: string;
+          p_content_ciphertext: string;
+          p_content_sha256: string;
+        };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
+      };
       complete_guest_turn: {
         Args: {
           p_recovery_token_hash: string;
@@ -730,6 +741,15 @@ export type Database = {
         Args: {
           p_patient_session_id: string;
           p_client_message_id: string;
+          p_content_ciphertext: string;
+          p_content_sha256: string;
+        };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
+      };
+      seal_patient_message: {
+        Args: {
+          p_patient_session_id: string;
+          p_source_message_id: string;
           p_content_ciphertext: string;
           p_content_sha256: string;
         };

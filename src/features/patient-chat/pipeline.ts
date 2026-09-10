@@ -1,12 +1,15 @@
 import {
   assessDeterministicRisk,
+  DEGRADED_MODE_RESPONSE,
   decideModelRisk,
   fallbackRisk,
   HIGH_RISK_RESPONSE,
   isPatientResponseSafe,
+  maxRiskDecision,
   MEDIUM_RISK_RESPONSE,
   REDACTION_FAILURE_RESPONSE,
   type ModelRiskProposal,
+  type DeterministicRisk,
   type RiskDecision,
 } from "../risk/policy";
 import { assertPhiSafe, redactPhi, REDACTION_VERSION, type RedactionResult } from "../redaction/redact";
@@ -38,6 +41,7 @@ export type PatientPipelineResult = {
   model: ModelGeneration | null;
   errorCode: string | null;
   memoryProposals: MemoryProposal[];
+  degradedMode: boolean;
 };
 
 export async function runPatientSafetyPipeline(input: {
@@ -47,8 +51,13 @@ export async function runPatientSafetyPipeline(input: {
   redact?: typeof redactPhi;
   sourceMessageId?: string;
   currentMemory?: MemoryCurrentFact[];
+  deterministicRisk?: DeterministicRisk | null;
 }): Promise<PatientPipelineResult> {
-  const deterministic = assessDeterministicRisk(input.message);
+  // The caller may precompute this before reserving a database turn. When it
+  // does not, the raw message is still assessed here before redaction.
+  const deterministic = input.deterministicRisk === undefined
+    ? assessDeterministicRisk(input.message)
+    : input.deterministicRisk;
   let redaction: RedactionResult;
 
   try {
@@ -75,6 +84,7 @@ export async function runPatientSafetyPipeline(input: {
         model: null,
         errorCode: "redaction_failed",
         memoryProposals: [],
+        degradedMode: false,
       };
     }
     return {
@@ -86,6 +96,7 @@ export async function runPatientSafetyPipeline(input: {
       model: null,
       errorCode: "redaction_failed",
       memoryProposals: [],
+      degradedMode: false,
     };
   }
 
@@ -97,7 +108,7 @@ export async function runPatientSafetyPipeline(input: {
       })
     : [];
 
-  if (deterministic) {
+  if (deterministic?.level === "high") {
     return {
       risk: {
         level: deterministic.level,
@@ -114,6 +125,7 @@ export async function runPatientSafetyPipeline(input: {
       model: null,
       errorCode: null,
       memoryProposals: deterministicMemory,
+      degradedMode: false,
     };
   }
 
@@ -146,29 +158,37 @@ export async function runPatientSafetyPipeline(input: {
       (uniqueCitationIds.length > 0 &&
         uniqueCitationIds.every((sourceId) => sourceIds.has(sourceId)));
     const responseSafe = isPatientResponseSafe(safeProposal.answer);
-    const risk = decideModelRisk({ proposal: safeProposal, citationsValid, responseSafe });
+    const modelRisk = decideModelRisk({ proposal: safeProposal, citationsValid, responseSafe });
+    const risk = maxRiskDecision(deterministic, modelRisk);
 
     return {
       risk,
-      answer: risk.level === "low" ? safeProposal.answer : MEDIUM_RISK_RESPONSE,
+      answer:
+        risk.level === "low"
+          ? safeProposal.answer
+          : risk.level === "high"
+            ? HIGH_RISK_RESPONSE
+            : MEDIUM_RISK_RESPONSE,
       citationSourceIds: risk.level === "low" ? uniqueCitationIds : [],
       redaction,
       sourceStatus: "completed",
       model,
       errorCode: risk.level === "low" ? null : risk.ruleMatches[0] ?? null,
       memoryProposals: mergeMemoryProposals(deterministicMemory, modelMemory),
+      degradedMode: false,
     };
   } catch (error) {
     const code = getSafeModelErrorCode(error);
     return {
-      risk: fallbackRisk("model_failure"),
-      answer: MEDIUM_RISK_RESPONSE,
+      risk: maxRiskDecision(deterministic, fallbackRisk("model_failure")),
+      answer: DEGRADED_MODE_RESPONSE,
       citationSourceIds: [],
       redaction,
       sourceStatus: "completed",
       model: null,
       errorCode: code,
       memoryProposals: deterministicMemory,
+      degradedMode: true,
     };
   }
 }

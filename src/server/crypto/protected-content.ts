@@ -10,6 +10,7 @@ import {
 import { getServerEnv } from "@/src/config/server-env";
 
 const FORMAT_VERSION = "v1";
+export const SAFETY_RESERVATION_PLACEHOLDER = "[PENDING_SAFETY_PIPELINE]";
 
 function getEncryptionKey() {
   return Buffer.from(getServerEnv().LEAD_CONTEXT_ENCRYPTION_KEY, "base64");

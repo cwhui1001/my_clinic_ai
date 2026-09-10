@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { runPatientSafetyPipeline, type PipelineKnowledgeSource } from "../../src/features/patient-chat/pipeline";
-import { assessDeterministicRisk, HIGH_RISK_RESPONSE, MEDIUM_RISK_RESPONSE } from "../../src/features/risk/policy";
+import { assessDeterministicRisk, DEGRADED_MODE_RESPONSE, HIGH_RISK_RESPONSE, MEDIUM_RISK_RESPONSE } from "../../src/features/risk/policy";
 
 const source: PipelineKnowledgeSource = {
   id: "10000000-0000-4000-8000-000000000001",
@@ -104,6 +104,7 @@ describe("redaction to model to server policy", () => {
     expect(result.risk.level).toBe("medium");
     expect(result.risk.escalationRequired).toBe(true);
     expect(result.answer).toBe(MEDIUM_RISK_RESPONSE);
+    expect(result.degradedMode).toBe(false);
   });
 
   it("fails toward Medium when the model times out", async () => {
@@ -112,7 +113,8 @@ describe("redaction to model to server policy", () => {
 
     expect(result.risk.level).toBe("medium");
     expect(result.errorCode).toBe("timeout");
-    expect(result.answer).toBe(MEDIUM_RISK_RESPONSE);
+    expect(result.answer).toBe(DEGRADED_MODE_RESPONSE);
+    expect(result.degradedMode).toBe(true);
   });
 
   it("fails closed when redaction cannot be verified", async () => {
