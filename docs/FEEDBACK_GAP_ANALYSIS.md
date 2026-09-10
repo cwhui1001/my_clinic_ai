@@ -959,3 +959,155 @@ Assumption for scheduling: “Friday at 10:00 AM” means Friday, 11 September 2
 4. **Highest-risk remaining problems:** clinician replies do not reach patients after tab closure; hosted cross-clinic isolation and the new conflict triggers lack real negative/integration proof; open contradictions have no explicit authorized resolution event; cleanup execution and provenance-aware deletion are not operationally reconciled; and provider/log-retention controls cannot be proven from application code alone.
 5. **Recommended implementation order after these fixes:** apply migrations through `202609100004` in hosted Supabase → keep the demonstrated email/password path stable → run two-clinic/consent/conflict/deletion integration tests → patient reply outbox and secure deep link → configure and test a supported SMS provider before exposing Phone Auth → explicit conflict-resolution events and retention policy → live metrics and UX.
 6. **Not realistic to complete production-credibly before the deadline:** all-channel push/SMS/WhatsApp/email delivery (ship one transactional channel); a real Instagram authentication/integration (phone OTP is implemented instead); clinical validation of the trilingual rules across dialects; provider Zero Data Retention approval/legal contracting; a full immutable quoted-span/message-version system; production Voice AI; and comprehensive E2E/integration coverage for all 21 scenarios. These remain explicitly PARTIAL/DOES NOT rather than being represented by schema placeholders or UI copy.
+
+## Continuity and Re-engagement Reassessment — 10 September 2026
+
+This section supersedes the earlier implementation observations and final count for Scenarios 01, 03, and 06. Status remains conservative until the new migration, VAPID configuration, and browser flows are exercised against the hosted deployment.
+
+## Scenario 01 — The clinician replies after the patient closes the tab
+
+Status: PARTIAL
+
+### Current implementation
+
+`supabase/migrations/202609100005_continuity_reengagement.sql:1-76` adds `clinician_response_at`, creates a PHI-free `notification_jobs` outbox plus attempt records, and enqueues one job in the same transaction as every `clinician_responses` insert. The existing structural deadline remains `response_expected_by`; it is computed from the clinic configuration when the escalation is queued rather than from UI copy. `app/api/staff/escalations/[escalationId]/responses/route.ts:8-24` persists the response first and then invokes `deliverResponseNotification`. `src/features/notifications/service.ts:38-93` performs the only real outbound transport: optional Web Push with a ten-second timeout, neutral content, encrypted subscription resolution, attempt/outcome persistence, and 404/410 subscription deactivation. It never reports delivery when VAPID is absent, no subscription exists, or the provider call fails.
+
+`src/features/notifications/payload.ts:1-8` creates a neutral return URL for the exact session/escalation. `app/login/page.tsx:7-29`, `app/components/patient-return-login.tsx:8-61`, `app/api/auth/patient-login/route.ts:15-48`, and `src/features/auth/return-path.ts:1-5` implement re-authentication with a strict patient-conversation-only return-path allowlist. The deep link is not a bearer credential. The destination still calls `getVerifiedUser()` and reads through patient RLS in `src/features/patient-sessions/service.ts:17-37`. `src/features/escalation/service.ts:21-65` now loads authorized clinician responses, and `app/components/patient-chat.tsx:160-165` displays the persisted response and actual first-response timestamp.
+
+`app/components/push-notification-control.tsx:5-72`, `app/api/patient/push-subscriptions/route.ts:10-38`, and `public/sw.js:1-18` provide explicit patient opt-in, server persistence, neutral notification display, and a same-origin click boundary. Unsupported/unconfigured browsers are told to return manually. `app/components/escalation-actions.tsx:17-54` shows the staff member the real delivery outcome instead of claiming notification success.
+
+### What breaks first
+
+If VAPID is not configured, the patient has not opted in, the browser lacks Push support, or delivery fails, no lock-screen/device alert arrives. The clinician response is still committed and becomes visible when the authenticated patient returns to the exact conversation. A signed-out patient can now re-authenticate without a guest cookie. No response is lost merely because notification delivery fails.
+
+### Missing
+
+- Hosted migration execution and an end-to-end push receipt on a supported browser over HTTPS.
+- A scheduled retry/lease worker and operator view for `pending` or `failed` jobs; the current request performs one immediate attempt.
+- An overdue workflow based on `response_expected_by`; the timestamp is honest and queryable, but nobody is automatically paged when it passes.
+- Transactional email, SMS, and WhatsApp transports. They are intentionally not claimed.
+
+### Proposed fix
+
+Before the deadline, apply migration `202609100005`, configure a generated VAPID key pair, and run one two-browser hosted acceptance test. If time remains, add a small authenticated/cron worker that leases pending jobs and retries with bounded backoff; do not add another channel without an operational provider account.
+
+### Files affected
+
+- `supabase/migrations/202609100005_continuity_reengagement.sql`
+- `src/features/notifications/*`
+- `app/api/patient/push-subscriptions/route.ts`
+- `app/api/staff/escalations/[escalationId]/responses/route.ts`
+- `app/components/push-notification-control.tsx`
+- `app/components/escalation-actions.tsx`
+- `app/login/page.tsx`
+- `app/components/patient-return-login.tsx`
+- `app/api/auth/patient-login/route.ts`
+- `app/patient/sessions/[sessionId]/page.tsx`
+- `app/components/patient-chat.tsx`
+- `public/sw.js`
+
+### Required test
+
+`tests/scenarios/test_scenario_01_response_delivery.test.ts` proves the transactional outbox contract, neutral payload, strict same-application return path, re-authentication path, patient authorization call, response read, and explicit non-delivery outcomes. A hosted browser/RLS test is still required before this can become SURVIVES.
+
+## Scenario 03 — Cross-device guest return after expiry
+
+Status: PARTIAL
+
+### Current implementation
+
+`app/api/lead-sessions/recovery-link/route.ts:10-24` now places the opaque recovery credential in the URL fragment rather than an HTTP query. `app/recover/page.tsx:1-14` sets `no-referrer`; `app/components/guest-recovery.tsx:8-29` removes the fragment immediately and exchanges it by POST. `app/api/lead-sessions/recover/route.ts:14-25` installs a newly rotated HttpOnly cookie only for an active session. `src/features/lead-sessions/service.ts:237-261` distinguishes active, expired, purged, and invalid state and invokes the narrow rotation RPC.
+
+`supabase/migrations/202609100005_continuity_reengagement.sql:143-202` stores only a recovery-token hash and lifecycle timestamps in tombstones, rotates the token under row lock, deletes abandoned guest messages at expiry, clears guest context/contact/recovery fields, and later marks the tombstone purged. The hourly job already declared in `supabase/migrations/202609100002_guest_retention_schedule.sql:1-18` calls the replaced function. The UI intentionally tells an expired visitor that the recovery window ended and cleanup is scheduled; a purged visitor is told cleanup completed. Neither state silently hides the conversation or claims it can be recovered.
+
+### What breaks first
+
+An active link created by the new path can resume on another device once, after which the copied credential is obsolete. An expired link cannot reopen content and explains why. If hosted cron has not run yet, the UI does not claim deletion has already completed. After cleanup, the purged state confirms that the guest conversation/contact content cannot be restored. Links generated by the older query-string implementation are not upgraded automatically.
+
+### Missing
+
+- Hosted proof that `pg_cron` is enabled, the replacement cleanup function is installed, and a real expired fixture is deleted.
+- Monitoring/alerting for failed cleanup jobs.
+- Browser E2E coverage across two physical/device profiles and migration handling for previously issued legacy links.
+- A reconciled policy for converted guest evidence, which is retained as consented clinical provenance rather than treated as abandoned guest data.
+
+### Proposed fix
+
+Apply the migration, verify the cron job in hosted Supabase, and run active/expired/purged fixtures with synthetic data. Keep legacy recovery links invalid rather than accepting query credentials that may remain in access logs; document the one-time transition.
+
+### Files affected
+
+- `supabase/migrations/202609100005_continuity_reengagement.sql`
+- `src/features/lead-sessions/service.ts`
+- `app/api/lead-sessions/recovery-link/route.ts`
+- `app/api/lead-sessions/recover/route.ts`
+- `app/recover/page.tsx`
+- `app/components/guest-recovery.tsx`
+
+### Required test
+
+`tests/scenarios/test_scenario_03_expired_cross_device_recovery.test.ts` proves fragment/POST exchange, token rotation, tombstone states, deletion/anonymisation contract, and distinct user-facing outcomes. Hosted cron and two-device browser tests remain required before SURVIVES.
+
+## Scenario 06 — An earned-email promise without a mail transport
+
+Status: SURVIVES
+
+### Current implementation
+
+There is no transactional mail client, SMTP credential, email provider API, SMS sender, or WhatsApp sender in the executable repository. Application surfaces do not offer or claim an emailed conversation summary. `app/components/push-notification-control.tsx:16-60` exposes Web Push only when the browser and deployment are actually configured and describes delivery as an attempt, not a guarantee. `README.md` and `TECHNICAL_BRIEF.md` explicitly state the transport boundary.
+
+### What breaks first
+
+Nothing falsely reports earned-email success because no earned-email action is exposed. Without configured Web Push, the patient sees that device alerts are unavailable and is directed to check the authenticated conversation manually.
+
+### Missing
+
+Earned email remains an intentionally omitted optional feature. Implementing it later requires a real transactional provider, verified destination resolution, purpose-specific consent/legal review, neutral templates, outbox attempts/receipts, bounce handling, and hosted delivery proof.
+
+### Proposed fix
+
+No pre-deadline implementation is needed. Preserve the capability/copy test and reject any email-summary UI until a working provider path exists.
+
+### Files affected
+
+- `tests/scenarios/test_scenario_06_no_unearned_email_promise.test.ts`
+- `README.md`
+- `TECHNICAL_BRIEF.md`
+
+### Required test
+
+`tests/scenarios/test_scenario_06_no_unearned_email_promise.test.ts` scans patient/guest acquisition surfaces for prohibited delivery claims and hardcoded response promises.
+
+## Updated Priority Implementation Plan
+
+### P0 — Safety/security/data-isolation issues
+
+No new P0 code is introduced by these continuity changes. Before deployment, apply all migrations in order and repeat the existing two-clinic, consent, redaction, logging, and provider-boundary tests against hosted Supabase.
+
+### P1 — Core trust and continuity issues
+
+1. Apply `202609100005_continuity_reengagement.sql` and configure/test VAPID over HTTPS.
+2. Exercise clinician response → outbox → Web Push → re-authentication → exact conversation with two synthetic patient accounts, including the negative cross-patient path.
+3. Exercise active → expired → purged recovery with hosted cron and synthetic data.
+4. Add a bounded retry/lease worker and an overdue query only if the hosted acceptance path is stable.
+
+### P2 — Reliability/data-integrity issues
+
+1. Add cleanup-job monitoring and notification-job operational visibility.
+2. Reconcile converted clinical provenance retention with patient erasure policy.
+3. Add browser E2E tests for permission denial, expired auth, obsolete recovery tokens, and unsupported Push.
+
+### P3 — UX/completeness improvements
+
+1. Add an authenticated patient notification-preferences page across multiple devices.
+2. Consider one transactional email transport only after provider credentials, legal basis, templates, receipts, and bounce behavior can be demonstrated.
+3. Do not attempt SMS/WhatsApp while the available provider account remains inactive.
+
+## Updated Final Assessment
+
+1. **SURVIVES: 9 scenarios** — 06, 08, 09, 10, 13, 15, 16, 17, 18.
+2. **PARTIAL: 12 scenarios** — 01, 02, 03, 04, 05, 07, 11, 12, 14, 19, 20, 21.
+3. **DOES NOT: 0 scenarios.** Scenario 01 moved to PARTIAL because an executable response/read/Web Push/re-authentication path now exists, while hosted delivery and retry proof remain incomplete.
+4. **Highest-risk remaining continuity problems:** migration/VAPID not yet proven in hosted Supabase; no scheduled notification retry worker; no overdue alerting; and cleanup execution is not monitored.
+5. **Recommended next order:** apply migration 005 → configure VAPID → hosted response/push/re-auth test → hosted active/expired/purged cleanup test → notification retry/overdue worker → remaining cross-clinic and provenance-retention verification.
+6. **Not realistic before the deadline:** production-grade multi-channel delivery, guaranteed Web Push across browsers, legacy-link migration, a fully monitored retry platform, and comprehensive two-device E2E. These remain explicitly PARTIAL rather than being represented by UI promises.

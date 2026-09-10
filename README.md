@@ -19,9 +19,11 @@ The repository uses synthetic data only. It is a prototype, not a diagnostic sys
 - Living Memory with append-only revisions, corrections, and source-message/model provenance.
 - Patient-confirmed Send to Clinic with an encrypted point-in-time summary/profile snapshot and acquisition provenance.
 - A same-clinic clinician dashboard with Staff/Nurse/Clinician RBAC; only Nurse and Clinician roles can author clinical responses.
+- Persisted clinician responses, a PHI-free notification outbox, and optional browser Web Push with authenticated exact-conversation return.
+- One-time guest recovery-link exchange with intentionally different active, expired, and purged outcomes.
 - Structured PHI-free operational audit logs.
 
-Real social-platform integrations, staff-authored referral links, warm-lead ranking, funnel dashboards, outbound notifications, and Voice AI are deliberately deferred.
+Real social-platform integrations, staff-authored referral links, warm-lead ranking, funnel dashboards, transactional email, SMS/WhatsApp delivery, and Voice AI are deliberately deferred.
 
 ## Stack
 
@@ -37,6 +39,7 @@ Real social-platform integrations, staff-authored referral links, warm-lead rank
 - npm
 - A hosted Supabase project
 - An OpenAI API key for model-backed responses
+- HTTPS in deployment for optional Web Push (localhost works during development)
 
 ## Environment setup
 
@@ -57,10 +60,12 @@ Use the base64 value for `LEAD_CONTEXT_ENCRYPTION_KEY` and the hex value for `RA
 
 The default model is configured by `OPENAI_MODEL`; the supplied template uses `gpt-5.4-mini`.
 
+Web Push is optional and disabled unless all three VAPID values in `.env.local` are valid. Generate a pair with `npx web-push generate-vapid-keys`, keep the private key server-only, and set `VAPID_SUBJECT` to a monitored `mailto:` or HTTPS contact. When disabled or unsupported, the UI tells patients to return to the secure conversation; it does not claim a notification was sent.
+
 ## Hosted Supabase setup
 
 1. Create a Supabase project.
-2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609100004_identity_consent_escalation.sql`.
+2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609100005_continuity_reengagement.sql`.
 3. Run `supabase/seed.sql`.
 4. Copy the project URL, publishable key, and secret key into `.env.local`.
 5. Under **Authentication -> URL Configuration**, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/auth/callback` and `http://localhost:3000/auth/confirm` as redirect URLs.
@@ -157,6 +162,17 @@ Relevant files:
 - `supabase/migrations/202609100002_guest_retention_schedule.sql`: hourly guest-expiry scheduling
 - `supabase/migrations/202609100003_living_memory_integrity.sql`: durable guest bootstrap, immutable source snapshots, and append-only contradiction records
 - `supabase/migrations/202609100004_identity_consent_escalation.sql`: verified phone conversion, encrypted contact continuity, distinct marketing consent, and minimized identity-aware escalation attribution
+- `supabase/migrations/202609100005_continuity_reengagement.sql`: clinician-response timestamps, PHI-free Web Push outbox/attempts, patient-owned encrypted subscriptions, and guest recovery lifecycle/rotation
+
+## Continuity and notification behavior
+
+The only implemented outbound transport is opt-in browser Web Push. A patient subscribes from an authenticated patient session. When a Nurse or Clinician records a response, the database trigger timestamps the escalation and creates a PHI-free job in the same transaction; the response route then attempts Web Push with a ten-second provider timeout and records the outcome. Notification text contains no clinical content. Its URL leads through re-authentication and only then to the exact patient session and escalation anchor; the URL itself grants no access.
+
+`response_expected_by` is computed from the clinic's configured response window when the escalation is queued. `clinician_response_at` records the first actual response. The patient UI labels the deadline as an estimate, never a guarantee. There is no scheduled notification retry worker in this prototype: failed/no-subscription/unconfigured outcomes remain visible in the outbox for operational follow-up.
+
+Guest recovery links put the opaque credential in a URL fragment, exchange it by POST, remove it from the address bar, rotate it once, and install a new HttpOnly cookie. Active links resume the guest chat. Expired links explain that the recovery window ended; purged links explain that cleanup completed. This supports cross-device recovery for still-active links created after this migration, subject to hosted migration and browser testing.
+
+No transactional email, SMS, or WhatsApp sender exists. The application does not promise emailed summaries or notification delivery through those channels.
 
 ## How RBAC is enforced
 
@@ -188,6 +204,7 @@ The main enforcement is in migrations `202609030002`, `202609030004`, `202609030
 7. Send the escalation and confirm its status changes to `queued` with an honest response window.
 8. Sign in at `/staff/login`, open the queue, and inspect the trigger, contradiction history, point-in-time profile, acquisition context, and provenance.
 9. Record a clinician response and close the escalation.
+10. With VAPID configured, enable device alerts from the patient session, record another clinician response, and confirm the neutral notification requires sign-in before opening the exact escalation. Without VAPID, confirm the UI and clinician action report that delivery is unavailable rather than claiming success.
 
 Use only synthetic names, identifiers, contact details, and health scenarios.
 
@@ -212,7 +229,8 @@ Use only synthetic names, identifiers, contact details, and health scenarios.
 
 - The staff-referral entry is simulated; there is no staff UI that creates a private referral link.
 - There is no warm-lead ranking view or per-channel funnel analytics dashboard.
-- No email/SMS/social notification is sent when an escalation is queued.
+- No email, SMS, WhatsApp, or social-platform notification is implemented. Web Push is optional, opt-in, and only attempted when a clinician response is persisted—not when an escalation is merely queued.
+- Notification retries are recorded but not scheduled automatically; hosted delivery and browser compatibility still require end-to-end verification.
 - No production platform webhooks, scraping, direct messaging, or ad retargeting are implemented.
 - No audio recording or transcription is implemented.
 - Hosted database RLS should be integration-tested with separate Patient A, Patient B, Staff, Nurse, and Clinician accounts before any real-world use.
