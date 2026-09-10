@@ -657,7 +657,7 @@ Put a `memory_bootstrap_pending/completed` state or outbox record inside the con
 
 ## Scenario 18 — A nurse opens the escalation payload cold
 
-Status: PARTIAL
+Status: SURVIVES
 
 ### Current implementation
 
@@ -864,7 +864,7 @@ Both provider clients call `fetchWithProviderTimeout` at `src/server/openai/gues
 
 ## Living Memory Implementation Reassessment — 10 September 2026
 
-This section supersedes the pre-implementation observations above for Scenarios 16, 17, 19, and 21. It also improves Scenario 18's clinician handoff, which remains PARTIAL because the encrypted payload is not yet versioned and schema-validated after decryption.
+This section supersedes the pre-implementation observations above for Scenarios 16, 17, 19, and 21. The later identity/consent reassessment records the completed strict validation for Scenario 18.
 
 ### Scenario 16 — SURVIVES
 
@@ -885,6 +885,28 @@ The smallest credible alternative to a full message-version subsystem is impleme
 ### Provenance storage trade-off
 
 The implementation stores the original encrypted message ciphertext and SHA-256 hash on each memory revision rather than adding a separate message-version aggregate. This is smaller, transactional, and keeps old evidence resolvable even if privileged code later changes the source row. It duplicates encrypted clinical content and can extend its effective retention, so snapshots are protected by the same patient/same-clinic-consent RLS as memory history and must be included in retention/erasure policy. A future full versioning system would deduplicate snapshots and support explicit redacted/unavailable versions, but is not required for this prototype's mutation-resilience scenario.
+
+## Identity, Consent, Attribution and Escalation Reassessment — 10 September 2026
+
+This section supersedes the earlier implementation observations for Scenarios 02, 05, 07, and 18. Status remains conservative where hosted configuration or database integration proof is external to this repository.
+
+### Scenario 02 — PARTIAL
+
+The social-comment simulator captures an optional phone at `app/components/lead-session-starter.tsx:67,132-138`; `src/features/lead-sessions/service.ts:162-177` normalizes, encrypts, hashes, and writes it through `create_lead_session_v2`. That writer stores the protected phone pair on LeadSession at `supabase/migrations/202609100004_identity_consent_escalation.sql:1-54`. The repository contains a real no-email route using Supabase Phone Auth: `app/api/auth/phone/start/route.ts:27` calls `signInWithOtp`, and `app/api/auth/phone/verify/route.ts:24` verifies the SMS OTP. `src/server/auth/user.ts:11-19` accepts either a confirmed email or confirmed phone; it does not accept a social handle. The UI states this boundary explicitly at `app/components/auth-form.tsx:122-125`. The production conversion route calls `convert_lead_to_patient_v2` at `app/api/conversion/route.ts:43-58`. Its writer in `supabase/migrations/202609100004_identity_consent_escalation.sql:74-267` accepts either verified identity, requires a phone-auth conversion phone to match the confirmed Supabase number, preserves the originally captured phone as active only when it matches the current number (otherwise as inactive history), and carries the encrypted lead social handle into contact history with an external reference to the originating LeadSession at lines 197-219. No contact value is copied into escalation attribution. `tests/scenarios/test_scenario_02_phone_social_identity.test.ts` verifies the code and persistence contract.
+
+**Deployment status:** Phone Auth is disabled in the submitted hosted Supabase environment. The available Twilio account is inactive, a replacement account could not complete 2FA, and no alternative provider was activated and tested before the deadline. Therefore SMS OTP delivery is not claimed or demonstrated. The working demo path is verified email/password. Scenario 02 remains PARTIAL: its implementation is ready for provider integration, but it does not survive in the current deployed environment until a supported SMS provider is configured and the hosted end-to-end test passes. No Instagram authentication is claimed.
+
+### Scenario 05 — PARTIAL
+
+`patient_sessions` now stores `acquisition_identity_level`, `current_identity_level`, actual authentication method, and verified state at `supabase/migrations/202609100004_identity_consent_escalation.sql:55-71`. Conversion writes the original lead identity and immutable `origin_lead_session_id` at lines 244-252, while funnel events preserve acquisition identity and put current identity in metadata through the trigger at lines 368-393. Clinic ownership remains on every LeadSession, PatientSession, funnel event, and escalation row. On queue, `enrich_escalation_identity` at lines 342-366 adds the two identity meanings to the attribution allowlist and removes `email`, `phone`, and `social_handle` keys. The staff DTO returns `clinicId` and the clinician view shows original versus verified current identity at `src/features/staff/service.ts:80-112` and `app/staff/escalations/[escalationId]/page.tsx:47`. `tests/scenarios/test_scenario_05_attribution_minimisation.test.ts` rejects PII additions. The scenario remains PARTIAL because its separate live, clinic-scoped conversion-statistics/zero-state requirement is not implemented and the migration still needs hosted integration proof.
+
+### Scenario 07 — PARTIAL
+
+Clinical/transactional sharing and marketing are separate inputs and separate append-only `consent_events`. The marketing checkbox at `app/components/consent-form.tsx:69-76` is optional and unchecked by default; the clinical checkbox remains required. Each has independent policy/notice constants in `src/features/consent/constants.ts:1-4`, and the conversion route verifies both sets before invoking the transactional writer. The writer only emits a marketing grant when the optional checkbox is true at `supabase/migrations/202609100004_identity_consent_escalation.sql:232-242`. Authenticated grants and withdrawals use `record_marketing_email_consent` at lines 271-319; current consent is independently queryable, newest-event-wins, and defaults false through `has_current_marketing_email_consent` at lines 321-340. The server route is `app/api/consent/marketing/route.ts:1-41`. `tests/scenarios/test_scenario_07_separate_consents.test.ts` covers default-off separation, versions, withdrawal architecture, and the false zero state. This remains PARTIAL pending hosted database integration proof and a patient-facing preferences control that calls the revocation endpoint; the endpoint and append-only writer are operational rather than placeholders.
+
+### Scenario 18 — SURVIVES
+
+The actual send path loads the trigger, deterministic/model-composed risk, and current Living Memory, then calls `buildEscalationPayload` in `src/features/escalation/service.ts:43-83`. The payload includes a bounded presenting-complaint excerpt, risk level/reason/confidence, medication current state plus correction history, open allergy/medication/dosage contradictions, and normalized message/revision provenance in `src/features/escalation/payload.ts:5-74`. `src/features/escalation/schema.ts:3-48` is a strict allowlist for summary, profile, provenance-bearing fields, and minimized attribution; unknown contact fields fail parsing. The same schemas validate before encryption and after authorized clinician-side decryption at `src/features/staff/service.ts:80-83,175-181`. Acquisition channel/campaign and original/current identity are visible, while phone/email/social-handle values remain only in protected identity/contact records. `tests/scenarios/test_scenario_18_cold_handoff_payload.test.ts` proves bounded cold-handoff content and rejects contact PII or malformed fields; existing Scenario 19 and 21 tests prove correction, contradiction, and provenance content.
 
 ## Cross-cutting required build properties
 
@@ -909,16 +931,16 @@ Assumption for scheduling: “Friday at 10:00 AM” means Friday, 11 September 2
 ### P1 — Core trust and continuity issues
 
 1. **Expose clinician responses to patients and ship one transactional channel** (Scenario 01). Use an outbox, verified email, neutral notification copy, authenticated deep link, attempts/receipts, and overdue query. Do not attempt four channels.
-2. **Preserve contact/identity without payload over-retention** (Scenarios 02, 05). Add original identity level to the allowlisted snapshot; migrate social handle to contact history; keep contact values out of escalation rows. Phone-only auth is separable if time runs out.
+2. **Completed in repository; phone deployment blocked externally: contact/identity without payload over-retention** (Scenarios 02, 05). Phone OTP, encrypted social/phone contact continuity, original/current identity separation, and minimized escalation attribution are implemented. The submitted environment uses email/password because no operational SMS provider is configured.
 3. **Partially completed: safety-critical memory conflict detection** (Scenarios 18, 19). Allergy-presence, medication-state, and dose conflicts are append-only and included in the handoff. Hosted execution proof and an explicit resolution event remain.
 4. **Completed in repository: exact medication correction language** (Scenario 16). Pronouns, “last week,” ambiguous references, restart, and correction chains are covered.
 
 ### P2 — Reliability/data-integrity issues
 
 1. **Completed in repository: retryable guest-memory bootstrap** (Scenario 17). Conversion calls the writer, preserves GuestMessage IDs, records completion state/attempts, and does not claim successful continuation before bootstrap completes.
-2. **Partially completed: escalation and provenance integrity** (Scenarios 05, 18, 21). Compact correction/conflict history, immutable source snapshots, hash verification, and explicit changed/unavailable states are implemented; strict payload versioning and retention resolution remain.
+2. **Completed for Scenario 18; provenance retention remains partial for Scenario 21.** Strict before/after-decryption payload schemas, compact correction/conflict history, immutable source snapshots, hash verification, and explicit changed/unavailable states are implemented.
 3. **Add total request/client deadlines and outage state** (Scenarios 13, 14), then display an explicit bounded degraded mode.
-4. **Separate marketing consent operationally** (Scenario 07): default-off UI, writer, withdrawal, versions, and current-consent query.
+4. **Completed in repository; hosted proof/preferences UI pending: separate marketing consent** (Scenario 07). Default-off conversion UI, append-only writer, withdrawal endpoint, independent versions, and current-consent query are implemented.
 5. **Add live funnel aggregates with an honest zero state** (cross-cutting/Scenario 05).
 
 ### P3 — UX/completeness improvements
@@ -931,9 +953,9 @@ Assumption for scheduling: “Friday at 10:00 AM” means Friday, 11 September 2
 
 ## Final assessment
 
-1. **SURVIVES: 8 scenarios** — 06, 08, 09, 10, 13, 15, 16, 17.
-2. **PARTIAL: 12 scenarios** — 02, 03, 04, 05, 07, 11, 12, 14, 18, 19, 20, 21.
+1. **SURVIVES: 9 scenarios** — 06, 08, 09, 10, 13, 15, 16, 17, 18.
+2. **PARTIAL: 11 scenarios** — 02, 03, 04, 05, 07, 11, 12, 14, 19, 20, 21.
 3. **DOES NOT: 1 scenario** — 01.
 4. **Highest-risk remaining problems:** clinician replies do not reach patients after tab closure; hosted cross-clinic isolation and the new conflict triggers lack real negative/integration proof; open contradictions have no explicit authorized resolution event; cleanup execution and provenance-aware deletion are not operationally reconciled; and provider/log-retention controls cannot be proven from application code alone.
-5. **Recommended implementation order after these fixes:** apply migrations through `202609100003` in hosted Supabase → run two-clinic/consent/conflict/deletion integration tests → patient reply outbox and secure deep link → explicit conflict-resolution events and retention policy → attribution/contact/consent → live metrics and UX.
-6. **Not realistic to complete production-credibly before the deadline:** all-channel push/SMS/WhatsApp/email delivery (ship one transactional channel); full phone-only plus social-platform authentication/integration; clinical validation of the trilingual rules across dialects; provider Zero Data Retention approval/legal contracting; a full immutable quoted-span/message-version system; production Voice AI; and comprehensive E2E/integration coverage for all 21 scenarios. These remain explicitly PARTIAL/DOES NOT rather than being represented by schema placeholders or UI copy.
+5. **Recommended implementation order after these fixes:** apply migrations through `202609100004` in hosted Supabase → keep the demonstrated email/password path stable → run two-clinic/consent/conflict/deletion integration tests → patient reply outbox and secure deep link → configure and test a supported SMS provider before exposing Phone Auth → explicit conflict-resolution events and retention policy → live metrics and UX.
+6. **Not realistic to complete production-credibly before the deadline:** all-channel push/SMS/WhatsApp/email delivery (ship one transactional channel); a real Instagram authentication/integration (phone OTP is implemented instead); clinical validation of the trilingual rules across dialects; provider Zero Data Retention approval/legal contracting; a full immutable quoted-span/message-version system; production Voice AI; and comprehensive E2E/integration coverage for all 21 scenarios. These remain explicitly PARTIAL/DOES NOT rather than being represented by schema placeholders or UI copy.

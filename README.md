@@ -10,7 +10,8 @@ The repository uses synthetic data only. It is a prototype, not a diagnostic sys
 - Immutable source/campaign/creative attribution and PHI-free funnel events.
 - Recoverable guest sessions using an opaque HttpOnly credential with encrypted message storage.
 - Useful guest responses, honest AI disclosure, and value-event tracking.
-- Supabase email/password authentication, email verification, and explicit named-clinic healthcare-sharing consent.
+- Supabase email/password authentication and explicit named-clinic healthcare-sharing consent. A phone-OTP path is implemented but disabled in the submitted deployment because no SMS provider is configured.
+- Separate, default-off, versioned marketing-email consent with append-only grant/withdrawal evidence.
 - Atomic and idempotent `LeadSession -> PatientSession` conversion without re-asking the original concern.
 - Authenticated patient chat with local PHI redaction before OpenAI.
 - Deterministic emergency rules followed by model assessment and a conservative server policy gate.
@@ -59,11 +60,22 @@ The default model is configured by `OPENAI_MODEL`; the supplied template uses `g
 ## Hosted Supabase setup
 
 1. Create a Supabase project.
-2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609100003_living_memory_integrity.sql`.
+2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609100004_identity_consent_escalation.sql`.
 3. Run `supabase/seed.sql`.
 4. Copy the project URL, publishable key, and secret key into `.env.local`.
 5. Under **Authentication -> URL Configuration**, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/auth/callback` and `http://localhost:3000/auth/confirm` as redirect URLs.
 6. Keep email confirmation enabled. Add equivalent production URLs before deployment.
+7. The submitted/demo configuration keeps **Authentication -> Providers -> Phone** disabled because an SMS provider could not be activated before the deadline. Use the tested email/password path. The repository contains a phone-OTP path for future activation, but it must not be presented as operational until a supported SMS provider is configured and Malaysian delivery is tested. The application never treats an Instagram or other social handle as authentication.
+
+### Phone-auth deployment status
+
+- **Application code:** implemented using Supabase `signInWithOtp` and `verifyOtp`.
+- **Submitted hosted environment:** disabled; no active Twilio or alternative SMS-provider credentials are configured.
+- **Working authentication path:** verified email and password.
+- **Data continuity:** an optionally captured phone remains encrypted contact data and is not copied into escalation attribution.
+- **Activation criteria:** configure a supported provider, test Malaysian OTP delivery and expiry, add abuse/rate-limit monitoring, and pass the hosted phone-conversion scenario test.
+
+Do not enable the Phone provider with blank, inactive, trial-blocked, or untested credentials. Doing so would expose users to a sign-in path that cannot deliver its OTP.
 
 If the project is linked to the Supabase CLI, preview and apply pending migrations with:
 
@@ -144,6 +156,7 @@ Relevant files:
 - `supabase/migrations/202609100001_p0_safety_boundaries.sql`: non-PHI reservations and authenticated sealing
 - `supabase/migrations/202609100002_guest_retention_schedule.sql`: hourly guest-expiry scheduling
 - `supabase/migrations/202609100003_living_memory_integrity.sql`: durable guest bootstrap, immutable source snapshots, and append-only contradiction records
+- `supabase/migrations/202609100004_identity_consent_escalation.sql`: verified phone conversion, encrypted contact continuity, distinct marketing consent, and minimized identity-aware escalation attribution
 
 ## How RBAC is enforced
 
@@ -162,7 +175,7 @@ Authorization is enforced server-side, not by hiding buttons:
 | Nurse | Read | Yes | Yes | Yes |
 | Clinician | Read | Yes | Yes | Yes |
 
-The main enforcement is in migrations `202609030002`, `202609030004`, `202609030005`, `202609030006`, and `202609100003`, with matching server checks in `src/features/staff/` and `src/features/memory/`.
+The main enforcement is in migrations `202609030002`, `202609030004`, `202609030005`, `202609030006`, `202609100003`, and `202609100004`, with matching server checks in `src/features/staff/`, `src/features/memory/`, authentication, and consent routes.
 
 ## Manual acceptance path
 

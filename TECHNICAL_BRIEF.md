@@ -102,6 +102,8 @@ The legal baseline is deliberately conservative. Malaysia’s regulator defines 
 
 The build optimizes one complete, inspectable safety/provenance path. It uses a modular monolith and request/response refresh instead of microservices, queues, realtime subscriptions, or background notification workers. It implements a clinician escalation queue but cuts warm-lead ranking, funnel visualization, staff-created referral links, outbound email/SMS, consent withdrawal UI, contact changes, multi-clinic patients, attachments, full observability, and real social/ad integrations. Channel enums exist beyond the four demo entries, but that is schema readiness—not an implementation claim.
 
+The repository also contains a Supabase phone-OTP authentication path for no-email leads. It is deliberately disabled in the submitted hosted environment because no SMS-provider account could be activated and tested before the deadline. The demonstrated identity path is verified email/password. Phone and social-handle data can still be retained as encrypted, mutable contact history, but neither is represented as verified authentication unless Supabase successfully confirms the phone OTP. Activating the path later requires a supported SMS provider, Malaysian delivery testing, abuse controls, and an end-to-end hosted conversion test.
+
 Testing prioritizes deterministic logic and database contract assertions within the timebox. Hosted RLS integration tests, browser E2E, load testing, accessibility audit, clinical validation, and adversarial redaction evaluation remain required production work. Curated database citations are used instead of live web retrieval so the release gate is deterministic and inspectable.
 
 ## Voice AI strategy
