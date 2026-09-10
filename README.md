@@ -65,7 +65,7 @@ Web Push is optional and disabled unless all three VAPID values in `.env.local` 
 ## Hosted Supabase setup
 
 1. Create a Supabase project.
-2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609100005_continuity_reengagement.sql`.
+2. In **SQL Editor**, run every file in `supabase/migrations/` in filename order, from `202609020001_phase1_foundation.sql` through `202609100006_guest_boundary_enforcement.sql`.
 3. Run `supabase/seed.sql`.
 4. Copy the project URL, publishable key, and secret key into `.env.local`.
 5. Under **Authentication -> URL Configuration**, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/auth/callback` and `http://localhost:3000/auth/confirm` as redirect URLs.
@@ -133,6 +133,16 @@ The suite covers attribution validation, guest-to-patient conversion contracts, 
 
 The tests are focused unit and SQL-contract tests. They do not replace hosted-Supabase integration, browser E2E, penetration, clinical-safety, accessibility, or legal review.
 
+After applying all migrations to a non-production hosted Supabase project, run the opt-in boundary test with synthetic fixtures:
+
+```powershell
+$env:RUN_HOSTED_BOUNDARY_TESTS = "1"
+npm test -- --run tests/integration/test_scenarios_04_12_hosted_boundary.test.ts
+Remove-Item Env:\RUN_HOSTED_BOUNDARY_TESTS
+```
+
+The test creates temporary confirmed Auth users and synthetic lead/patient/message rows in the first seeded clinic, proves pre-consent staff denial, cross-patient isolation, guest direct-access denial, database rate-limit rejection, and expiry deletion, then removes its fixtures. It is skipped during the normal test suite because it mutates the configured hosted test project. Never point it at a production project.
+
 ## Where PHI redaction happens
 
 The local redactor is `src/features/redaction/redact.ts`. It handles names expressed in supported contexts, Malaysian/Singaporean IC or ID formats, Malaysian phone numbers, and email addresses. Both guest and patient pipelines call it before any OpenAI request:
@@ -163,6 +173,47 @@ Relevant files:
 - `supabase/migrations/202609100003_living_memory_integrity.sql`: durable guest bootstrap, immutable source snapshots, and append-only contradiction records
 - `supabase/migrations/202609100004_identity_consent_escalation.sql`: verified phone conversion, encrypted contact continuity, distinct marketing consent, and minimized identity-aware escalation attribution
 - `supabase/migrations/202609100005_continuity_reengagement.sql`: clinician-response timestamps, PHI-free Web Push outbox/attempts, patient-owned encrypted subscriptions, and guest recovery lifecycle/rotation
+- `supabase/migrations/202609100006_guest_boundary_enforcement.sql`: value-event-only conversion boundary, observable database-native retention runs, and the hourly cleanup target
+
+## Guest data boundary
+
+The executable guest path is:
+
+```text
+opaque HttpOnly recovery cookie
+  -> read_guest_messages resolves exactly one active LeadSession from the token hash
+  -> append_guest_message enforces session ownership, idempotency, in-flight state, and 30/hour limit
+  -> non-PHI reservation is stored
+  -> raw risk, redaction, provider, and output gates run
+  -> encrypted raw content and safe assistant response are sealed
+  -> a typed value_event is committed only when meaningful non-diagnostic value was returned
+  -> identity continuation becomes available only after that value_event
+  -> verified authentication plus explicit healthcare-sharing consent converts the lead
+  -> patient/staff reads remain constrained by patient ownership or active same-clinic consent RLS
+  -> unconverted expired guest messages are deleted and protected lead fields cleared by Supabase pg_cron
+```
+
+Anon and authenticated roles have no direct guest-message mutation authority. Guest reads use the server-only recovery-token DAL and the service-role-only `read_guest_messages` RPC, which accepts only a token hash and resolves the LeadSession inside PostgreSQL; no client-supplied LeadSession ID selects a thread. The conversion route calls `convert_lead_to_patient_v3`, which requires a committed `value_event` and no longer accepts a UI `requires_secure_continue` flag as sufficient proof of value.
+
+Supabase `pg_cron` calls `run_guest_retention_cleanup()` hourly. Successful executions write only timestamps and an expired-row count to `guest_retention_runs`; failures remain in `cron.job_run_details`. Because applying and operating the scheduler is deployment work, retention remains PARTIAL until the hosted job and an expired synthetic fixture are verified.
+
+Useful hosted checks:
+
+```sql
+select jobid, jobname, schedule, command, active
+from cron.job
+where jobname = 'nightingale-expire-guest-sessions-hourly';
+
+select * from public.guest_retention_runs order by completed_at desc limit 10;
+
+select status, return_message, start_time, end_time
+from cron.job_run_details
+where jobid = (
+  select jobid from cron.job
+  where jobname = 'nightingale-expire-guest-sessions-hourly'
+)
+order by start_time desc limit 10;
+```
 
 ## Continuity and notification behavior
 

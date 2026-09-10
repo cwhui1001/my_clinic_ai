@@ -1111,3 +1111,97 @@ No new P0 code is introduced by these continuity changes. Before deployment, app
 4. **Highest-risk remaining continuity problems:** migration/VAPID not yet proven in hosted Supabase; no scheduled notification retry worker; no overdue alerting; and cleanup execution is not monitored.
 5. **Recommended next order:** apply migration 005 → configure VAPID → hosted response/push/re-auth test → hosted active/expired/purged cleanup test → notification retry/overdue worker → remaining cross-clinic and provenance-retention verification.
 6. **Not realistic before the deadline:** production-grade multi-channel delivery, guaranteed Web Push across browsers, legacy-link migration, a fully monitored retry platform, and comprehensive two-device E2E. These remain explicitly PARTIAL rather than being represented by UI promises.
+
+## Guest Boundary Reassessment — 10 September 2026
+
+This section supersedes the earlier implementation observations for Scenarios 04 and 12. Both remain PARTIAL until the new migration and opt-in isolation suite pass against the submitted hosted Supabase project.
+
+## Scenario 04 — Value before identity and consent-gated staff visibility
+
+Status: PARTIAL
+
+### Current implementation
+
+The guest page has no initial identity wall. `app/components/guest-chat.tsx:22-124` loads and completes a guest exchange before it can set the secure-continuation state. `src/features/guest-chat/service.ts:146-175` now derives continuation availability only from a committed `funnel_events.name = 'value_event'`; an assistant presentation flag is no longer enough. The turn writer at `src/features/guest-chat/service.ts:228-325` clears `valueType` on redaction/output failures and writes `requires_secure_continue` only when a real value type survived all safety gates. Emergency-only guidance no longer exposes a routine identity handoff.
+
+The production conversion route calls `convert_lead_to_patient_v3` at `app/api/conversion/route.ts:43-58`. Its wrapper in `supabase/migrations/202609100006_guest_boundary_enforcement.sql` requires a committed `value_event`, preserves authenticated/idempotent conversion through v2, revokes authenticated execution of v2, and therefore prevents a forged UI flag from bypassing value-before-identity. The next unit—identity verification and explicit named-clinic sharing—is genuinely required only for persistent PatientSession continuity and staff visibility.
+
+Before consent, staff have no LeadSession listing or guest-thread route. Direct message access is revoked in `supabase/migrations/202609030001_guest_chat.sql`; after conversion, the staff message policy at `supabase/migrations/202609030006_escalation_clinician_dashboard.sql:556-567` requires an active same-clinic membership and latest healthcare-sharing consent. `src/features/staff/service.ts:10-110` queries only RLS-filtered sent escalations and their authorized messages.
+
+### What breaks first
+
+In repository logic, a failed/blocked response cannot unlock conversion, and a staff account reads zero guest rows before consent. The remaining uncertainty is deployment proof: until migration 006 and the hosted isolation test run successfully, the submitted database may still expose the older v2 conversion grant and there is no live evidence that its RLS configuration matches the repository.
+
+### Missing
+
+- Successful execution of migration 006 in hosted Supabase.
+- A recorded hosted run of the opt-in Guest/Patient A/Patient B/Staff negative test.
+- Browser E2E proof that the CTA is absent after a synthetic redaction failure and appears after a meaningful completed answer.
+
+### Proposed fix
+
+Apply migration 006 to the hosted test project, run the opt-in boundary suite, and capture its output for the submission. Keep the authenticated v2 grant revoked. Do not add a staff guest-search endpoint.
+
+### Files affected
+
+- `src/features/guest-chat/policy.ts`
+- `src/features/guest-chat/service.ts`
+- `app/api/conversion/route.ts`
+- `supabase/migrations/202609100006_guest_boundary_enforcement.sql`
+- `src/types/database.ts`
+- `tests/scenarios/test_scenario_04_value_and_guest_visibility.test.ts`
+- `tests/integration/test_scenarios_04_12_hosted_boundary.test.ts`
+
+### Required test
+
+`tests/scenarios/test_scenario_04_value_and_guest_visibility.test.ts` proves the executable value-event gate and current consent policy contract. `tests/integration/test_scenarios_04_12_hosted_boundary.test.ts`, when explicitly enabled against non-production hosted Supabase, proves Staff reads zero pre-consent rows and sees the converted-origin row only after current same-clinic consent.
+
+## Scenario 12 — Guest PHI boundary, retention, rate limiting, and staff roles
+
+Status: PARTIAL
+
+### Current implementation
+
+The actual guest-message path is `app/api/guest/messages/route.ts:44-104` → `createGuestTurn` → `append_guest_message`. `src/features/guest-chat/service.ts:177-201` resolves the opaque cookie token to one active LeadSession and invokes the database append RPC before redaction/provider work. `supabase/migrations/202609030001_guest_chat.sql:77-151` locks that token-derived session, rejects unknown/expired credentials, prevents concurrent turns, and enforces 30 guest messages per LeadSession/hour. The service stores only a non-PHI reservation first; raw content is encrypted and sealed after the safety pipeline through `seal_guest_message` in `supabase/migrations/202609100001_p0_safety_boundaries.sql:47-92`.
+
+Guest thread reads in `src/features/guest-chat/service.ts:146-173` call the token-bound `read_guest_messages` RPC in `supabase/migrations/202609100006_guest_boundary_enforcement.sql`; the database resolves the LeadSession from the recovery-token hash and accepts no client-provided target LeadSession ID. The RPC is service-role-only and anon has no direct `messages` grant. Patient reads use `patients.auth_user_id = auth.uid()` through `messages_select_converted_origin`, and staff reads use active same-clinic current consent. This keeps pre-consent guest PHI outside the staff query path while allowing original provenance after consented conversion.
+
+`supabase/migrations/202609100005_continuity_reengagement.sql:176-203` is the destructive retention writer: it tombstones the token hash, deletes abandoned guest messages and cascading model records, clears encrypted lead context/social/phone and recovery authority, and expires the LeadSession. `supabase/migrations/202609100006_guest_boundary_enforcement.sql:1-61` adds a PHI-free successful-run ledger and replaces the existing Supabase `pg_cron` target with `run_guest_retention_cleanup()`. Failed scheduler executions remain inspectable in `cron.job_run_details`; the application no longer treats an unused helper as execution.
+
+### What breaks first
+
+If migrations are applied and `pg_cron` is active, expired abandoned guest content is deleted hourly and the success count is recorded. If migration deployment, extension availability, or the cron job fails, application reads still reject the expired token but physical deletion is delayed. There is currently no external alert consuming `cron.job_run_details`, so an operator must inspect it. Converted guest evidence is deliberately retained as consented clinical provenance and is not governed by the abandoned-guest cleanup.
+
+### Missing
+
+- Hosted confirmation that the cron job is active and at least one expired synthetic fixture was physically deleted.
+- Automated alerting when no successful run appears within the expected interval or `cron.job_run_details` reports failure.
+- Distributed abuse controls beyond the current clinic/fingerprint lead limit and per-session message limit.
+- A finalized retention/erasure policy for converted clinical provenance.
+
+### Proposed fix
+
+Apply migration 006, run the opt-in hosted suite, inspect both `guest_retention_runs` and `cron.job_run_details`, and add a simple deployment monitor if time permits. Keep Scenario 12 PARTIAL until this external scheduler evidence exists.
+
+### Files affected
+
+- `supabase/migrations/202609100006_guest_boundary_enforcement.sql`
+- `src/types/database.ts`
+- `tests/scenarios/test_scenario_12_guest_boundary_retention.test.ts`
+- `tests/integration/test_scenarios_04_12_hosted_boundary.test.ts`
+- `README.md`
+- `TECHNICAL_BRIEF.md`
+
+### Required test
+
+`tests/scenarios/test_scenario_12_guest_boundary_retention.test.ts` proves that the production service invokes the database rate limiter, all reads are bound to token/identity ownership, and the scheduled target performs destructive cleanup plus observable success recording. The opt-in hosted integration test executes pre-consent staff denial, anon/incorrect-token denial, Patient A versus Patient B isolation, the 31st-message rejection, deletion/anonymisation, and retention-run persistence using synthetic fixtures.
+
+## Updated Guest-Boundary Priority
+
+1. Apply migration 006 to the non-production hosted project.
+2. Run `tests/integration/test_scenarios_04_12_hosted_boundary.test.ts` with explicit opt-in and retain the output.
+3. Verify the cron command, latest successful ledger row, and latest `cron.job_run_details` status after an hourly run.
+4. Add an alert for a missing/failed cleanup run; do not claim monitored deletion until it exists.
+5. Run a browser check for CTA timing after success, redaction failure, and emergency guidance.
+
+The overall count remains **9 SURVIVES, 12 PARTIAL, 0 DOES NOT**. Scenarios 04 and 12 remain PARTIAL because repository implementation and executable hosted tests now exist, but hosted RLS and scheduler execution have not been run in this change set.
