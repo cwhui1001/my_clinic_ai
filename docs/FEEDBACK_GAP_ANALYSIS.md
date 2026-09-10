@@ -1205,3 +1205,48 @@ Apply migration 006, run the opt-in hosted suite, inspect both `guest_retention_
 5. Run a browser check for CTA timing after success, redaction failure, and emergency guidance.
 
 The overall count remains **9 SURVIVES, 12 PARTIAL, 0 DOES NOT**. Scenarios 04 and 12 remain PARTIAL because repository implementation and executable hosted tests now exist, but hosted RLS and scheduler execution have not been run in this change set.
+
+## Multi-Clinic Isolation Reassessment — 11 September 2026
+
+This section supersedes the earlier Scenario 20 implementation notes.
+
+### Scenario 20 — PARTIAL
+
+#### Current implementation
+
+- `supabase/migrations/202609030006_escalation_clinician_dashboard.sql:114-145` centralizes staff authorization in `has_active_clinic_membership` and `has_consented_patient_access`. Both derive the caller from `auth.uid()`; the latter requires current healthcare-sharing consent for the same `clinic_id` and `patient_id`.
+- The staff RLS policies at `supabase/migrations/202609030006_escalation_clinician_dashboard.sql:512-590` reuse that central predicate for patients, patient sessions, messages, risks, memories, escalations, provenance, and clinician responses. Staff mutation RPCs at lines 374-496 first load the escalation, then require the caller's active membership in that escalation's clinic and effective consent.
+- Patient ownership policies at `supabase/migrations/202609030002_patient_conversion.sql:387-439` join protected rows to a patient whose `auth_user_id = auth.uid()`. Composite clinic foreign keys bind patient sessions, messages, risks, memories, and escalations to one tenant.
+- `src/features/staff/auth.ts:17-45` reads memberships with the session-bound Supabase client. `src/features/staff/service.ts:11-78` reads the queue and target escalation through RLS before its sole privileged author-role lookup, which is constrained by `escalation.clinic_id`.
+- `src/features/patient-sessions/service.ts:20-101` proves ownership through an RLS read before loading the origin lead and clinic with the service role. `src/features/patient-chat/service.ts:38-55` obtains an owned patient message through the authenticated `append_patient_message` RPC before privileged completion work.
+- No protected patient or staff API route accepts `clinic_id`. The public acquisition `clinicSlug` selects the destination for a new lead; it does not grant protected read or mutation access.
+- `tests/scenarios/test_scenario_20_multiclinic_isolation.test.ts` guards these executable/static contracts. `tests/integration/test_scenario_20_hosted_multiclinic_isolation.test.ts` creates Clinic A and Clinic B identities and records, then proves same-clinic reads, zero cross-clinic rows for patients/messages/escalations, denied cross-clinic escalation mutation, and Patient A/Patient B isolation.
+
+#### What breaks first
+
+With the repository migrations applied, a Clinic A clinician supplying a Clinic B resource UUID receives zero rows or an authorization error; no protected endpoint can turn a caller-supplied clinic identifier into authority. The remaining uncertainty is deployment evidence: if the hosted project is missing migrations or has manually changed grants/policies, repository inspection cannot prove its effective state.
+
+#### Missing
+
+- A recorded successful run of the opt-in two-clinic integration suite against the actual non-production hosted Supabase project.
+- Browser/E2E confirmation and independent penetration review.
+- A CI policy preventing future protected code from using request-supplied tenant identifiers as authority or performing an unscoped service-role read.
+
+#### Proposed fix
+
+Apply every repository migration to a non-production hosted project, run the opt-in scenario-20 suite, and retain its output with the submission evidence. Keep privileged clients server-only and preserve the rule that an authenticated RLS lookup establishes the resource and clinic before any narrowly scoped service-role follow-up.
+
+#### Files affected
+
+- `tests/scenarios/test_scenario_20_multiclinic_isolation.test.ts`
+- `tests/integration/test_scenario_20_hosted_multiclinic_isolation.test.ts`
+- `.env.example`
+- `README.md`
+- `TECHNICAL_BRIEF.md`
+- `docs/FEEDBACK_GAP_ANALYSIS.md`
+
+#### Required test
+
+`test_scenario_20_multiclinic_isolation.test.ts` proves the central identity-derived authorization contract and service-role sequencing. `test_scenario_20_hosted_multiclinic_isolation.test.ts` is the negative hosted test for two clinics, two clinicians, and two patients. It is intentionally opt-in because it creates and deletes hosted Auth/database fixtures; Scenario 20 remains PARTIAL until that suite passes against the deployed project.
+
+The overall count remains **9 SURVIVES, 12 PARTIAL, 0 DOES NOT**. Scenario 20 is materially better evidenced but is not promoted on repository contracts alone.

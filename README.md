@@ -143,6 +143,16 @@ Remove-Item Env:\RUN_HOSTED_BOUNDARY_TESTS
 
 The test creates temporary confirmed Auth users and synthetic lead/patient/message rows in the first seeded clinic, proves pre-consent staff denial, cross-patient isolation, guest direct-access denial, database rate-limit rejection, and expiry deletion, then removes its fixtures. It is skipped during the normal test suite because it mutates the configured hosted test project. Never point it at a production project.
 
+To prove Clinic A/Clinic B isolation against the deployed policies and RPCs, use a non-production hosted project with every migration applied:
+
+```powershell
+$env:RUN_HOSTED_TENANT_TESTS = "1"
+npm test -- --run tests/integration/test_scenario_20_hosted_multiclinic_isolation.test.ts
+Remove-Item Env:\RUN_HOSTED_TENANT_TESTS
+```
+
+This test creates two temporary clinics, two patients, two clinicians, consented records, messages, and escalations. It verifies each clinician sees only their clinic, cross-clinic escalation mutation is denied, and each patient sees only their own records; cleanup runs afterward. It is intentionally skipped by default and must never target production.
+
 ## Where PHI redaction happens
 
 The local redactor is `src/features/redaction/redact.ts`. It handles names expressed in supported contexts, Malaysian/Singaporean IC or ID formats, Malaysian phone numbers, and email addresses. Both guest and patient pipelines call it before any OpenAI request:
@@ -243,6 +253,10 @@ Authorization is enforced server-side, not by hiding buttons:
 | Clinician | Read | Yes | Yes | Yes |
 
 The main enforcement is in migrations `202609030002`, `202609030004`, `202609030005`, `202609030006`, `202609100003`, and `202609100004`, with matching server checks in `src/features/staff/`, `src/features/memory/`, authentication, and consent routes.
+
+Clinic isolation has one central database rule: authorization comes from the authenticated `auth.uid()`, never a caller-provided `clinic_id`. `has_active_clinic_membership(clinic_id)` resolves that identity to an active membership, and `has_consented_patient_access(clinic_id, patient_id)` additionally requires the latest healthcare-sharing consent to be granted for the same clinic and patient. Staff RLS policies and mutation RPCs reuse these functions. Patient RLS independently joins each record to the patient row owned by `auth.uid()`. Protected API routes accept opaque resource IDs only; they obtain the clinic through the RLS-authorized record. Public `clinicSlug` acquisition chooses where a new lead is created but grants no read or staff authority.
+
+Service-role use is limited to server-only work. On patient and staff read paths, an RLS-authorized session record or membership is resolved first, and any following privileged lookup is constrained by the clinic from that trusted record. Never expose the service key to the browser or use a request-supplied clinic identifier as authorization evidence.
 
 ## Manual acceptance path
 

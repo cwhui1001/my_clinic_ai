@@ -35,6 +35,8 @@ Patient messages pass through independent safety controls in a fixed order. Shar
 
 RBAC is defense in depth. Supabase Auth supplies `auth.uid()`. RLS enforces patient ownership and active same-clinic staff membership plus current healthcare-sharing consent. Direct table mutations are revoked; narrow database functions validate identity, role, clinic, consent, record state, and provenance. Next.js repeats resource checks before returning minimal views. Staff can acknowledge; only Nurse and Clinician memberships can author a protected clinical response or close a responded escalation.
 
+Multi-clinic isolation is identity-derived. Protected routes accept resource IDs, not an authoritative `clinic_id`; RLS resolves the signed-in user's patient ownership or active clinic membership. The shared `has_active_clinic_membership` and `has_consented_patient_access` database functions are reused by staff policies and RPCs, so adding Clinic B does not require a parallel authorization path. Composite `(record_id, clinic_id)` foreign keys prevent child rows from being attached across tenants. Server-only service-role reads occur only after a session-bound RLS lookup has established the resource and clinic, and the privileged follow-up query is scoped to that established clinic. Public clinic slugs are acquisition routing inputs only and confer no access.
+
 ## Data schema and clinician-message extension
 
 ```text
