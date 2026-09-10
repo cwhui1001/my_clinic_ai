@@ -8,11 +8,13 @@ import type { PatientEscalationDto } from "@/src/types/escalation";
 
 export function PatientChat({
   sessionId,
+  continuedFromGuest,
   initialMessages,
   initialMemory,
   initialEscalations,
 }: {
   sessionId: string;
+  continuedFromGuest: boolean;
   initialMessages: PatientMessageDto[];
   initialMemory: MemoryItemDto[];
   initialEscalations: PatientEscalationDto[];
@@ -96,7 +98,7 @@ export function PatientChat({
             id="patient-message"
             maxLength={2000}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Tell Nightingale what you would like the clinic to understand..."
+            placeholder={continuedFromGuest ? "Add anything new or correct an earlier detail..." : "Tell Nightingale what you would like the clinic to understand..."}
             rows={2}
             value={draft}
           />
@@ -217,19 +219,27 @@ function PatientProfile({ memory }: { memory: MemoryItemDto[] }) {
             const current = item.revisions.find((revision) => revision.id === item.currentRevisionId);
             if (!current) return null;
             return (
-              <article key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <article key={item.id} className={`rounded-2xl border p-4 ${item.conflicts.some((conflict) => conflict.status === "open") ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{memoryLabel(item.kind)}</p>
                   <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${current.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{current.status}</span>
                 </div>
                 <p className="mt-2 break-words text-sm font-semibold text-slate-900">{displayMemoryValue(current.value)}</p>
                 <p className="mt-2 text-xs text-slate-500">Updated {formatMemoryDate(current.updatedAt)} · {current.confidence} confidence</p>
+                {item.conflicts.some((conflict) => conflict.status === "open") ? (
+                  <div className="mt-3 rounded-xl border border-amber-300 bg-white/70 p-3 text-xs leading-5 text-amber-950" role="alert">
+                    <p className="font-bold">Needs clarification</p>
+                    <p>Conflicting {item.conflicts.filter((conflict) => conflict.status === "open").map((conflict) => conflictLabel(conflict.kind)).join(", ")} evidence is preserved for clinic review.</p>
+                  </div>
+                ) : null}
                 <details className="mt-3 text-xs text-slate-600">
                   <summary className="cursor-pointer font-semibold text-teal-800">Provenance · {item.revisions.length} revision{item.revisions.length === 1 ? "" : "s"}</summary>
                   <ol className="mt-2 space-y-2 border-l border-teal-200 pl-3">
                     {item.revisions.map((revision) => (
                       <li key={revision.id}>
-                        <span className="font-semibold">{revision.status}</span> · {formatMemoryDate(revision.updatedAt)} · <a className="underline hover:text-teal-900" href={`#message-${revision.sourceMessageId}`}>source message</a>
+                        <span className="font-semibold">{revision.status}</span> · {formatMemoryDate(revision.updatedAt)} · {revision.sourceIntegrity === "verified" ? <a className="underline hover:text-teal-900" href={`#message-${revision.sourceMessageId}`}>verified source message</a> : <span className="font-semibold text-amber-800">source {revision.sourceIntegrity}</span>}
+                        {revision.contradictionStatus === "open" ? <span className="ml-1 font-bold text-amber-800"> · contradiction open</span> : null}
+                        {revision.sourceIntegrity !== "verified" ? <blockquote className="mt-1 rounded-lg bg-white p-2 text-slate-600">Immutable snapshot: {revision.sourceSnapshot}</blockquote> : null}
                       </li>
                     ))}
                   </ol>
@@ -245,6 +255,12 @@ function PatientProfile({ memory }: { memory: MemoryItemDto[] }) {
 
 function memoryLabel(kind: MemoryItemDto["kind"]) {
   return kind.replaceAll("_", " ");
+}
+
+function conflictLabel(kind: MemoryItemDto["conflicts"][number]["kind"]) {
+  if (kind === "allergy_presence") return "allergy";
+  if (kind === "medication_status") return "medication status";
+  return "dosage";
 }
 
 function displayMemoryValue(value: string) {

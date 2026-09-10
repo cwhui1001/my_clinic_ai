@@ -50,6 +50,24 @@ export type EscalationReviewDto = EscalationQueueItemDto & {
     status: string;
     revisionId: string;
     sourceMessageId: string;
+    sourceContentHash: string;
+    sourceIntegrity: "verified" | "changed" | "unavailable";
+    sourceSnapshot: string;
+    contradictionStatus: "open" | null;
+    conflicts: Array<{
+      id: string;
+      kind: "allergy_presence" | "medication_status" | "dosage";
+      leftRevisionId: string;
+      rightRevisionId: string;
+    }>;
+    history: Array<{
+      revisionId: string;
+      value: string;
+      status: string;
+      sourceMessageId: string;
+      sourceIntegrity: "verified" | "changed" | "unavailable";
+      updatedAt: string;
+    }>;
   }>;
   attribution: {
     sourceChannel: SourceChannel;

@@ -116,6 +116,8 @@ export async function getPatientSessionView(sessionId: string): Promise<PatientS
     id: patientSession.id,
     status: patientSession.status,
     startedAt: patientSession.started_at,
+    memoryBootstrapStatus: patientSession.memory_bootstrap_status,
+    continuedFromGuest: (messages ?? []).some((message) => message.actor === "guest"),
     clinic,
     patientEmail: user.email || "",
     consentedAt: consent.occurred_at,
