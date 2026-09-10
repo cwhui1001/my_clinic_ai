@@ -738,6 +738,12 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["lead_recovery_tombstones"]["Insert"]>;
         Relationships: [];
       };
+      guest_retention_runs: {
+        Row: { id: string; scheduler: "supabase_pg_cron"; expired_session_count: number; started_at: string; completed_at: string };
+        Insert: { id?: string; scheduler?: "supabase_pg_cron"; expired_session_count: number; started_at: string; completed_at: string };
+        Update: Partial<Database["public"]["Tables"]["guest_retention_runs"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -823,6 +829,20 @@ export type Database = {
         Returns: string;
       };
       convert_lead_to_patient_v2: {
+        Args: {
+          p_recovery_token_hash: string;
+          p_phone_ciphertext: string;
+          p_phone_hash: string;
+          p_consent_granted: boolean;
+          p_policy_version: string;
+          p_notice_version: string;
+          p_marketing_consent: boolean;
+          p_marketing_policy_version: string;
+          p_marketing_notice_version: string;
+        };
+        Returns: string;
+      };
+      convert_lead_to_patient_v3: {
         Args: {
           p_recovery_token_hash: string;
           p_phone_ciphertext: string;
@@ -949,6 +969,14 @@ export type Database = {
       rotate_lead_recovery_token: {
         Args: { p_current_token_hash: string; p_new_token_hash: string };
         Returns: Database["public"]["Tables"]["lead_sessions"]["Row"][];
+      };
+      run_guest_retention_cleanup: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      read_guest_messages: {
+        Args: { p_recovery_token_hash: string };
+        Returns: Database["public"]["Tables"]["messages"]["Row"][];
       };
       upsert_push_subscription: {
         Args: { p_patient_session_id: string; p_subscription_ciphertext: string; p_endpoint_hash: string; p_expires_at: string | null };
