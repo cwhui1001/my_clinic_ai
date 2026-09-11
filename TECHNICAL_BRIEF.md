@@ -6,7 +6,7 @@ Legal note: The channel matrix below is product-risk analysis, not legal advice.
 
 ## Architecture and safety boundary
 
-Nightingale is a modular monolith: one Next.js App Router application, one hosted Supabase project, and stateless OpenRouter Responses API calls. The browser handles presentation and Supabase Auth cookies; Next.js Route Handlers and server-only domain services own validation, authorization, decryption, redaction, risk policy, and minimal DTO construction. PostgreSQL is the durable source of truth. OpenRouter and the routed model provider are never the conversation database.
+Nightingale is a modular monolith: one Next.js App Router application, one hosted Supabase project, and stateless Gemini `generateContent` calls. The browser handles presentation and Supabase Auth cookies; Next.js Route Handlers and server-only domain services own validation, authorization, decryption, redaction, risk policy, and minimal DTO construction. PostgreSQL is the durable source of truth. Gemini is never the conversation database.
 
 ```text
 Acquisition link / simulated channel
@@ -24,7 +24,7 @@ Acquisition link / simulated channel
   `- authenticated, clinic-scoped data services
               |                         |
               v                         v
- Supabase Auth + PostgreSQL        OpenRouter Responses API
+ Supabase Auth + PostgreSQL        Gemini generateContent API
  RLS, grants, transactions,       redacted minimum context,
  encrypted records, provenance    store=false, structured output
 ```

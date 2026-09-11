@@ -74,12 +74,12 @@ PostgreSQL
   License: PostgreSQL License
   https://www.postgresql.org/about/licence/
 
-OpenRouter API / model selected by OPENROUTER_MODEL
-  Default template value: openai/gpt-5.4-mini
-  License: OpenRouter is a proprietary hosted routing service. The selected
-  model remains subject to its model provider's terms and policies.
-  https://openrouter.ai/terms
-  https://openrouter.ai/privacy
+Google Gemini API / model selected by GEMINI_MODEL
+  Default template value: gemini-flash-latest
+  License: proprietary hosted model and API; governed by the Google APIs Terms
+  and Gemini API Additional Terms rather than an open-source model license.
+  https://ai.google.dev/gemini-api/terms
+  https://policies.google.com/privacy
 
 PLATFORM AND LEGAL REFERENCES
 

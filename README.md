@@ -13,7 +13,7 @@ The repository uses synthetic data only. It is a prototype, not a diagnostic sys
 - Supabase email/password authentication and explicit named-clinic healthcare-sharing consent. A phone-OTP path is implemented but disabled in the submitted deployment because no SMS provider is configured.
 - Separate, default-off, versioned marketing-email consent with append-only grant/withdrawal evidence.
 - Atomic and idempotent `LeadSession -> PatientSession` conversion without re-asking the original concern.
-- Authenticated patient chat with local PHI redaction before OpenRouter.
+- Authenticated patient chat with local PHI redaction before Gemini.
 - Deterministic emergency rules followed by model assessment and a conservative server policy gate.
 - Curated citations for releasable Low-risk educational responses.
 - Living Memory with append-only revisions, corrections, and source-message/model provenance.
@@ -30,7 +30,7 @@ Real social-platform integrations, staff-authored referral links, warm-lead rank
 - Next.js 16 App Router, React 19, and TypeScript
 - Tailwind CSS 4
 - Supabase PostgreSQL and Supabase Auth
-- OpenRouter Responses API
+- Google Gemini `generateContent` API
 - Zod validation and Vitest
 
 ## Prerequisites
@@ -38,7 +38,7 @@ Real social-platform integrations, staff-authored referral links, warm-lead rank
 - Node.js 20.19+; Node.js 22 LTS is recommended
 - npm
 - A hosted Supabase project
-- An OpenRouter API key with credits for model-backed responses
+- A restricted Gemini API key for model-backed responses
 - HTTPS in deployment for optional Web Push (localhost works during development)
 
 ## Environment setup
@@ -56,9 +56,9 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-Use the base64 value for `LEAD_CONTEXT_ENCRYPTION_KEY` and the hex value for `RATE_LIMIT_HMAC_KEY`. `SUPABASE_SECRET_KEY`, `OPENROUTER_API_KEY`, and both generated secrets are server-only and must never be prefixed with `NEXT_PUBLIC_` or committed.
+Use the base64 value for `LEAD_CONTEXT_ENCRYPTION_KEY` and the hex value for `RATE_LIMIT_HMAC_KEY`. `SUPABASE_SECRET_KEY`, `GEMINI_API_KEY`, and both generated secrets are server-only and must never be prefixed with `NEXT_PUBLIC_` or committed.
 
-The default model is configured by `OPENROUTER_MODEL`; the supplied template uses the OpenRouter slug `openai/gpt-5.4-mini`. Provider requests require structured-output support, deny data-collecting routes, request Zero Data Retention, set `store: false`, and retain the existing explicit timeout. If no eligible route is available, Nightingale fails safely into its labelled rule-only mode.
+The default model is configured by `GEMINI_MODEL`; the supplied template uses `gemini-flash-latest`. Gemini receives only locally redacted, minimum necessary context and must return JSON matching the supplied schema. The server independently validates that output and retains the existing explicit timeout and rule-only failure mode. The key must be restricted to the Gemini API and kept server-only. Provider terms and deployment controls still require review before processing real patient data.
 
 Web Push is optional and disabled unless all three VAPID values in `.env.local` are valid. Generate a pair with `npx web-push generate-vapid-keys`, keep the private key server-only, and set `VAPID_SUBJECT` to a monitored `mailto:` or HTTPS contact. When disabled or unsupported, the UI tells patients to return to the secure conversation; it does not claim a notification was sent.
 
@@ -170,13 +170,13 @@ This test creates two temporary clinics, two patients, two clinicians, consented
 
 ## Where PHI redaction happens
 
-The local redactor is `src/features/redaction/redact.ts`. It handles names expressed in supported contexts, Malaysian/Singaporean IC or ID formats, Malaysian phone numbers, and email addresses. Both guest and patient pipelines call it before any OpenRouter request:
+The local redactor is `src/features/redaction/redact.ts`. It handles names expressed in supported contexts, Malaysian/Singaporean IC or ID formats, Malaysian phone numbers, and email addresses. Both guest and patient pipelines call it before any Gemini request:
 
 ```text
 raw input -> deterministic multilingual emergency floor
           -> persist a non-PHI idempotency reservation
           -> local redaction + leak assertion (fail closed)
-          -> minimum redacted context -> OpenRouter (ZDR requested, store: false, explicit timeout)
+          -> minimum redacted context -> Gemini (structured output, explicit timeout)
           -> max(deterministic risk, model risk)
           -> deterministic output safety gate
           -> seal encrypted raw record + complete the turn
@@ -191,7 +191,7 @@ Relevant files:
 - `src/features/risk/output-safety.ts`: deterministic patient-facing diagnostic/reassurance gate
 - `src/features/guest-chat/service.ts`: guest orchestration
 - `src/features/patient-chat/pipeline.ts`: patient redaction, risk, model, and release gate
-- `src/server/openai/guest-response.ts` and `patient-response.ts`: server-only OpenRouter boundary using ZDR/data-policy routing, `store: false`, and an abort deadline (the directory name is retained to minimize migration churn)
+- `src/server/openai/guest-response.ts` and `patient-response.ts`: server-only Gemini boundary using native structured output and an abort deadline (the legacy directory name is retained to minimize migration churn)
 - `src/server/logging/audit.ts`: structured PHI-free audit events with runtime sanitisation
 - `supabase/migrations/202609100001_p0_safety_boundaries.sql`: non-PHI reservations and authenticated sealing
 - `supabase/migrations/202609100002_guest_retention_schedule.sql`: hourly guest-expiry scheduling
@@ -292,7 +292,7 @@ Use only synthetic names, identifiers, contact details, and health scenarios.
 
 | Failure | Behavior |
 |---|---|
-| Redaction/leak assertion | Do not call OpenRouter; fail closed. Preserve local emergency guidance when the raw-message floor is High. |
+| Redaction/leak assertion | Do not call Gemini; fail closed. Preserve local emergency guidance when the raw-message floor is High. |
 | Model timeout/API/schema failure | Preserve the deterministic floor and return explicitly labelled, non-advisory safety-only copy with PHI-free metadata. |
 | Authentication outage or invalid session | Reject protected reads/mutations; do not expose patient or staff data. |
 | Database transaction failure | Do not display an uncommitted response; idempotency supports safe retry. |

@@ -398,9 +398,9 @@ Status: PARTIAL
 
 - `src/server/logging/audit.ts:3-22` accepts only action, outcome, resource type/ID, error code, and timestamp. It writes this allowlist to `console.info`; no message/body field exists.
 - API routes return allowlisted error codes. Examples: `app/api/guest/messages/route.ts:89-102` and `app/api/patient/sessions/[sessionId]/messages/route.ts:36-62` do not return exception messages or prompts.
-- Provider clients use direct `fetch`, send only redacted message/context, use hashed `safety_identifier`, omit response bodies from errors, and set `store: false`: `src/server/openai/guest-response.ts:61-76,148-156` and `src/server/openai/patient-response.ts:55-90,158-185`.
+- Provider clients use direct server-only `fetch`, send only redacted message/context, and omit response bodies from errors: `src/server/openai/guest-response.ts` and `src/server/openai/patient-response.ts`. Gemini receives no email, phone, patient ID, guest token, or application safety identifier.
 - Repository grep finds raw message use in encryption, local policy/redaction, and browser request bodies, but no logger call containing it. There is no evidence that a unique test-patient phrase has been traced through deployed platform logs, APM, proxy logs, or the provider dashboard.
-- Provider requests now route through OpenRouter with per-request `zdr: true`, `data_collection: "deny"`, `require_parameters: true`, and `store: false`. These executable restrictions improve the provider boundary, but hosted account settings, eligible endpoint availability, downstream contractual terms, and infrastructure logging still require deployment evidence.
+- Provider requests now use Gemini's native `generateContent` endpoint and JSON-schema output. Hosted API tier/data-use terms, key restrictions, contractual controls, and infrastructure logging still require deployment evidence; the repository does not claim Zero Data Retention.
 
 ### What breaks first
 
@@ -414,7 +414,7 @@ Normal application logs and handled errors are designed not to leak content. The
 
 ### Proposed fix
 
-Document the exact OpenRouter workspace/privacy controls and downstream provider contract, disable request-body capture in hosting/APM, centralize sanitized error reporting, and run a synthetic canary audit. Continue sending only locally redacted minimum context and do not claim healthcare compliance from routing flags alone.
+Document the exact Gemini project, API tier, key restrictions, data-use controls, and contract; disable request-body capture in hosting/APM, centralize sanitized error reporting, and run a synthetic canary audit. Continue sending only locally redacted minimum context and do not claim healthcare compliance from schema validation alone.
 
 ### Files affected
 
@@ -471,7 +471,7 @@ Status: SURVIVES
 
 ### Current implementation
 
-- `src/config/server-env.ts:14-22,50-56` sets an explicit OpenRouter timeout, default 15 seconds and capped at 30 seconds.
+- `src/config/server-env.ts:14-22,50-56` sets an explicit Gemini timeout, default 15 seconds and capped at 30 seconds.
 - `src/server/openai/guest-response.ts:61-72,148-156` aborts the provider fetch and maps abort to a timeout error.
 - `src/features/guest-chat/service.ts:251-281` catches provider/redaction failure and persists safe non-medical failure copy; `app/components/guest-chat.tsx:78-120,225-228` replaces the spinner when the route returns.
 - The browser fetch itself has no timeout, and database/network calls around the model have no deadline.
@@ -479,7 +479,7 @@ Status: SURVIVES
 
 ### What breaks first
 
-If only OpenRouter or its routed model provider hangs, Ana should see the safe failure response well before second 45. If the route/database hangs, the browser can spin indefinitely. If she writes `sakit dada`, the local emergency check executes but misses it, so the timeout response lacks the 999 floor.
+If only Gemini hangs, Ana should see the safe failure response well before second 45. If the route/database hangs, the browser can spin indefinitely. If she writes `sakit dada`, the local emergency check executes but misses it, so the timeout response lacks the 999 floor.
 
 ### Missing
 
@@ -509,7 +509,7 @@ Status: PARTIAL
 ### Current implementation
 
 - Deterministic risk is outside the model try path: patient `src/features/patient-chat/pipeline.ts:51-118`; guest `src/features/guest-chat/service.ts:203-235`.
-- English `difficulty breathing` is High in `src/features/risk/policy.ts:13` and `src/features/guest-chat/policy.ts:7`, so the exact English message receives hard-coded 999 copy without calling OpenRouter.
+- English `difficulty breathing` is High in `src/features/risk/policy.ts:13` and `src/features/guest-chat/policy.ts:7`, so the exact English message receives hard-coded 999 copy without calling Gemini.
 - Non-deterministic patient provider failures become conservative Medium/escalation with local safe copy at `src/features/patient-chat/pipeline.ts:161-172`; guest failures use `SAFE_FAILURE_RESPONSE` at `src/features/guest-chat/service.ts:251-259`.
 - There is no outage state, circuit breaker, health signal, or explicit user label saying the service is operating in rule-only degraded mode.
 
@@ -840,7 +840,7 @@ The executable staff path remains session-bound and consent-gated in `src/featur
 
 ### Scenario 11 — PARTIAL
 
-Both provider clients call `fetchWithProviderTimeout` at `src/server/openai/guest-response.ts` and `src/server/openai/patient-response.ts`, with only redacted context, per-request ZDR/non-collection routing, and `store: false`. `src/server/logging/sanitize.ts:11-22` applies runtime allowlists to audit actions, codes, resource types, UUIDs, and SHA-256 hashes before `src/server/logging/audit.ts:7-13` writes them. `tests/scenarios/test_scenario_11_no_phi_egress.test.ts` uses PHI canaries against provider-source and logging contracts. The status remains PARTIAL because hosted request-body/APM logging, OpenRouter account controls, and downstream provider contracts cannot be proven from this repository.
+Both provider clients call `fetchWithProviderTimeout` at `src/server/openai/guest-response.ts` and `src/server/openai/patient-response.ts` with only redacted minimum context and native JSON-schema output. `src/server/logging/sanitize.ts:11-22` applies runtime allowlists to audit actions, codes, resource types, UUIDs, and SHA-256 hashes before `src/server/logging/audit.ts:7-13` writes them. `tests/scenarios/test_scenario_11_no_phi_egress.test.ts` uses PHI canaries against provider-source and logging contracts. The status remains PARTIAL because hosted request-body/APM logging, Gemini API tier/data-use controls, and contractual terms cannot be proven from this repository.
 
 ### Scenario 12 — PARTIAL
 
@@ -848,7 +848,7 @@ Both provider clients call `fetchWithProviderTimeout` at `src/server/openai/gues
 
 ### Scenario 13 — SURVIVES
 
-`fetchWithProviderTimeout` at `src/server/openai/provider-timeout.ts:8-29` owns an `AbortController`, aborts at the configured deadline, maps the result to a non-sensitive `ProviderRequestTimeoutError`, and is called by both OpenRouter clients. `tests/scenarios/test_scenario_13_provider_timeout.test.ts` advances a fake clock and proves a hung fetch is aborted at 15 seconds. The service then returns stable local degraded-mode copy. A whole-route/browser deadline is still a reliability improvement, but an OpenRouter or routed-provider hang no longer produces the feedback scenario's 45-second spinner.
+`fetchWithProviderTimeout` at `src/server/openai/provider-timeout.ts:8-29` owns an `AbortController`, aborts at the configured deadline, maps the result to a non-sensitive `ProviderRequestTimeoutError`, and is called by both Gemini clients. `tests/scenarios/test_scenario_13_provider_timeout.test.ts` advances a fake clock and proves a hung fetch is aborted at 15 seconds. The service then returns stable local degraded-mode copy. A whole-route/browser deadline is still a reliability improvement, but a Gemini provider hang no longer produces the feedback scenario's 45-second spinner.
 
 ### Scenario 14 — PARTIAL
 
@@ -1639,7 +1639,7 @@ A database/network stall outside the provider fetch has no whole-route deadline,
 
 ### What changed
 
-Both OpenRouter calls share an explicit aborting provider timeout rather than relying on SDK/network defaults.
+Both Gemini calls share an explicit aborting provider timeout rather than relying on SDK/network defaults.
 
 ### Remaining weakness
 
