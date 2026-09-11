@@ -3,14 +3,13 @@ import "server-only";
 import { z } from "zod";
 
 import type { PipelineKnowledgeSource } from "@/src/features/patient-chat/pipeline";
-import { getOpenRouterEnv } from "@/src/config/server-env";
+import { getGeminiEnv } from "@/src/config/server-env";
 import { fetchWithProviderTimeout, ProviderRequestTimeoutError } from "@/src/server/openai/provider-timeout";
 
-type OpenRouterResponsePayload = {
-  id?: string;
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{ type?: string; text?: string }>;
+type GeminiResponsePayload = {
+  responseId?: string;
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> };
   }>;
 };
 
@@ -44,11 +43,10 @@ export class PatientModelError extends Error {
 export async function createPatientModelResponse(input: {
   redactedMessage: string;
   sources: PipelineKnowledgeSource[];
-  safetyIdentifier: string;
 }) {
-  let env: ReturnType<typeof getOpenRouterEnv>;
+  let env: ReturnType<typeof getGeminiEnv>;
   try {
-    env = getOpenRouterEnv();
+    env = getGeminiEnv();
   } catch {
     throw new PatientModelError("configuration");
   }
@@ -56,40 +54,33 @@ export async function createPatientModelResponse(input: {
   const startedAt = Date.now();
 
   try {
-    const response = await fetchWithProviderTimeout("https://openrouter.ai/api/v1/responses", {
+    const response = await fetchWithProviderTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
-        "X-OpenRouter-Title": "Nightingale",
+        "x-goog-api-key": env.GEMINI_API_KEY,
       },
       body: JSON.stringify({
-        model: env.OPENROUTER_MODEL,
-        store: false,
-        provider: {
-          require_parameters: true,
-          data_collection: "deny",
-          zdr: true,
+        systemInstruction: {
+          parts: [{
+            text: [
+              "You are Nightingale AI in an authenticated patient intake messenger. You are not a doctor.",
+              "Assess risk conservatively. Never diagnose, recommend a medication change, prescribe treatment, or reassure the patient that symptoms are safe.",
+              "Low risk may receive empathetic general support grounded only in the supplied approved sources.",
+              "Medium or High risk must not receive clinical advice. The server will replace your draft with approved safety copy.",
+              "If the patient requests a diagnosis, requests more clinical clarity, sounds unsure, or the evidence is insufficient, set the corresponding flag and do not classify Low.",
+              "For a Low result, cite at least one supplied source ID. Never invent a source ID or medical fact.",
+              "Do not reproduce, infer, or guess identifiers represented by [REDACTED].",
+              "Extract only facts explicitly stated in this message into memoryProposals: chief complaint, key symptoms with stated timeline, current medications, and allergies.",
+              "Use a short lowercase snake_case canonicalKey. Never infer a diagnosis, medication, allergy, date, or correction. Use low confidence when uncertain; the server will omit it.",
+            ].join("\n"),
+          }],
         },
-        safety_identifier: input.safetyIdentifier,
-        max_output_tokens: 600,
-        instructions: [
-          "You are Nightingale AI in an authenticated patient intake messenger. You are not a doctor.",
-          "Assess risk conservatively. Never diagnose, recommend a medication change, prescribe treatment, or reassure the patient that symptoms are safe.",
-          "Low risk may receive empathetic general support grounded only in the supplied approved sources.",
-          "Medium or High risk must not receive clinical advice. The server will replace your draft with approved safety copy.",
-          "If the patient requests a diagnosis, requests more clinical clarity, sounds unsure, or the evidence is insufficient, set the corresponding flag and do not classify Low.",
-          "For a Low result, cite at least one supplied source ID. Never invent a source ID or medical fact.",
-          "Do not reproduce, infer, or guess identifiers represented by [REDACTED].",
-          "Extract only facts explicitly stated in this message into memoryProposals: chief complaint, key symptoms with stated timeline, current medications, and allergies.",
-          "Use a short lowercase snake_case canonicalKey. Never infer a diagnosis, medication, allergy, date, or correction. Use low confidence when uncertain; the server will omit it.",
-        ].join("\n"),
-        input: [
+        contents: [
           {
             role: "user",
-            content: [
+            parts: [
               {
-                type: "input_text",
                 text: JSON.stringify({
                   patient_message: input.redactedMessage,
                   approved_sources: input.sources.map((source) => ({
@@ -103,19 +94,17 @@ export async function createPatientModelResponse(input: {
             ],
           },
         ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "nightingale_patient_safety_response",
-            strict: true,
-            schema: {
+        generationConfig: {
+          maxOutputTokens: 600,
+          responseMimeType: "application/json",
+          responseJsonSchema: {
               type: "object",
               additionalProperties: false,
               properties: {
                 riskLevel: { type: "string", enum: ["low", "medium", "high"] },
-                riskReason: { type: "string", minLength: 1, maxLength: 160 },
+                riskReason: { type: "string" },
                 confidence: { type: "string", enum: ["low", "med", "high"] },
-                answer: { type: "string", minLength: 1, maxLength: 1200 },
+                answer: { type: "string" },
                 asksForDiagnosis: { type: "boolean" },
                 asksForClarity: { type: "boolean" },
                 soundsUnsure: { type: "boolean" },
@@ -132,8 +121,8 @@ export async function createPatientModelResponse(input: {
                     additionalProperties: false,
                     properties: {
                       kind: { type: "string", enum: ["chief_complaint", "symptom", "medication", "allergy"] },
-                      canonicalKey: { type: "string", minLength: 1, maxLength: 80 },
-                      value: { type: "string", minLength: 1, maxLength: 500 },
+                      canonicalKey: { type: "string" },
+                      value: { type: "string" },
                       status: { type: "string", enum: ["active", "stopped", "resolved", "corrected"] },
                       confidence: { type: "string", enum: ["low", "med", "high"] },
                       effectiveAt: { type: ["string", "null"] },
@@ -153,14 +142,13 @@ export async function createPatientModelResponse(input: {
                 "citationSourceIds",
                 "memoryProposals",
               ],
-            },
           },
         },
       }),
-    }, env.OPENROUTER_REQUEST_TIMEOUT_MS);
+    }, env.GEMINI_REQUEST_TIMEOUT_MS);
 
     if (!response.ok) throw new PatientModelError("provider");
-    const payload = (await response.json()) as OpenRouterResponsePayload;
+    const payload = (await response.json()) as GeminiResponsePayload;
     const outputText = extractOutputText(payload);
     if (!outputText) throw new PatientModelError("invalid_output");
 
@@ -175,8 +163,8 @@ export async function createPatientModelResponse(input: {
 
     return {
       proposal: parsed.data,
-      model: env.OPENROUTER_MODEL,
-      providerResponseId: payload.id ?? null,
+      model: env.GEMINI_MODEL,
+      providerResponseId: payload.responseId ?? null,
       durationMs: Date.now() - startedAt,
     };
   } catch (error) {
@@ -188,11 +176,10 @@ export async function createPatientModelResponse(input: {
   }
 }
 
-function extractOutputText(payload: OpenRouterResponsePayload) {
-  if (payload.output_text) return payload.output_text;
-  for (const item of payload.output ?? []) {
-    for (const content of item.content ?? []) {
-      if (content.type === "output_text" && content.text) return content.text;
+function extractOutputText(payload: GeminiResponsePayload) {
+  for (const candidate of payload.candidates ?? []) {
+    for (const part of candidate.content?.parts ?? []) {
+      if (part.text) return part.text;
     }
   }
   return null;

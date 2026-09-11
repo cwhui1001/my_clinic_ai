@@ -78,7 +78,6 @@ export async function createPatientTurn(
       createPatientModelResponse({
         redactedMessage,
         sources: approvedSources,
-        safetyIdentifier: hashProtectedContent(`patient-session:${patientSessionId}`),
       }),
   });
 
@@ -97,8 +96,8 @@ export async function createPatientTurn(
   const redactionStatus: RedactionStatus = pipeline.redaction ? "passed" : "failed";
   const isModelFailure = pipeline.risk.source === "fallback" && pipeline.errorCode !== "redaction_failed";
   const modelStatus: ModelRunStatus = pipeline.model ? "completed" : isModelFailure ? "failed" : "skipped";
-  const provider = pipeline.model || isModelFailure ? "openrouter" : "local";
-  const model = pipeline.model?.model ?? (isModelFailure ? process.env.OPENROUTER_MODEL || "unconfigured" : "deterministic-risk-gate");
+  const provider = pipeline.model || isModelFailure ? "gemini" : "local";
+  const model = pipeline.model?.model ?? (isModelFailure ? process.env.GEMINI_MODEL || "unconfigured" : "deterministic-risk-gate");
   const redactedInputHash = hashProtectedContent(pipeline.redaction?.text ?? "[REDACTION_FAILED]");
   const assessedAt = new Date().toISOString();
 

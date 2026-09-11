@@ -11,10 +11,10 @@ const serverEnvSchema = z.object({
   RATE_LIMIT_HMAC_KEY: z.string().min(32),
 });
 
-const openRouterEnvSchema = z.object({
-  OPENROUTER_API_KEY: z.string().min(1),
-  OPENROUTER_MODEL: z.string().min(1).default("openai/gpt-5.4-mini"),
-  OPENROUTER_REQUEST_TIMEOUT_MS: z.coerce
+const geminiEnvSchema = z.object({
+  GEMINI_API_KEY: z.string().min(1),
+  GEMINI_MODEL: z.string().regex(/^[a-zA-Z0-9._-]+$/).default("gemini-flash-latest"),
+  GEMINI_REQUEST_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(1000)
@@ -47,11 +47,11 @@ export function getServerEnv() {
   return env;
 }
 
-export function getOpenRouterEnv() {
-  return openRouterEnvSchema.parse({
-    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
-    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
-    OPENROUTER_REQUEST_TIMEOUT_MS: process.env.OPENROUTER_REQUEST_TIMEOUT_MS,
+export function getGeminiEnv() {
+  return geminiEnvSchema.parse({
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GEMINI_MODEL: process.env.GEMINI_MODEL,
+    GEMINI_REQUEST_TIMEOUT_MS: process.env.GEMINI_REQUEST_TIMEOUT_MS,
   });
 }
 

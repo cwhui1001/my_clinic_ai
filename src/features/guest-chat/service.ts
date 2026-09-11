@@ -212,8 +212,8 @@ export async function createGuestTurn(
   let redactionSummary: Json = {};
   let redactedInputHash = hashProtectedContent("[REDACTION_FAILED]");
   let modelStatus: ModelRunStatus = answer ? "skipped" : "completed";
-  let provider = answer ? "local" : "openrouter";
-  let model = answer ? "deterministic" : process.env.OPENROUTER_MODEL || "unconfigured";
+  let provider = answer ? "local" : "gemini";
+  let model = answer ? "deterministic" : process.env.GEMINI_MODEL || "unconfigured";
   let providerResponseId: string | null = null;
   let durationMs = 0;
   let errorCode: string | null = null;
@@ -246,7 +246,6 @@ export async function createGuestTurn(
           redactedPreloadedContext: redactedContext?.text ?? null,
           clinicName: session.clinic.name,
           clinicProfile: profile,
-          safetyIdentifier: tokenHash,
         });
         answer = generated.answer;
         model = generated.model;

@@ -23,13 +23,15 @@ describe("test_scenario_11_no_phi_egress", () => {
     for (const file of ["guest-response.ts", "patient-response.ts"]) {
       const source = readFileSync(resolve(`src/server/openai/${file}`), "utf8");
       expect(source).toContain("redactedMessage");
-      expect(source).toContain("store: false");
-      expect(source).toContain("https://openrouter.ai/api/v1/responses");
-      expect(source).toContain('data_collection: "deny"');
-      expect(source).toContain("zdr: true");
+      expect(source).toContain("https://generativelanguage.googleapis.com/v1beta/models/");
+      expect(source).toContain('"x-goog-api-key": env.GEMINI_API_KEY');
+      expect(source).toContain('responseMimeType: "application/json"');
+      expect(source).toContain("responseJsonSchema");
       expect(source).toContain("fetchWithProviderTimeout");
       expect(source).not.toContain("https://api.openai.com");
       expect(source).not.toContain("OPENAI_API_KEY");
+      expect(source).not.toContain("https://openrouter.ai");
+      expect(source).not.toContain("OPENROUTER_API_KEY");
       expect(source).not.toMatch(/response\.text\(\)/);
     }
   });
